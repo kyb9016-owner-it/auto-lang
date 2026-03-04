@@ -14,8 +14,8 @@ _FONT_URLS = [
         "https://github.com/google/fonts/raw/main/ofl/boldonse/Boldonse-Regular.ttf",
     ),
     (
-        "Outfit-Regular.ttf",
-        "https://github.com/google/fonts/raw/main/ofl/outfit/Outfit%5Bwght%5D.ttf",
+        "Poppins-ExtraBold.ttf",
+        "https://github.com/google/fonts/raw/main/ofl/poppins/Poppins-ExtraBold.ttf",
     ),
     (
         "NotoSansJP-Bold.ttf",
@@ -76,7 +76,7 @@ def bold(size: int) -> ImageFont.FreeTypeFont:
     return get("Boldonse-Regular.ttf", size)
 
 def outfit(size: int) -> ImageFont.FreeTypeFont:
-    return get("Outfit-Regular.ttf", size)
+    return get("Poppins-ExtraBold.ttf", size)
 
 def noto_jp(size: int) -> ImageFont.FreeTypeFont:
     return get("NotoSansJP-Bold.ttf", size)

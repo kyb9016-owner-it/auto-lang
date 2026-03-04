@@ -34,7 +34,8 @@ Topic: {sc['topic_en']} ({sc['topic_ko']})
 Time slot: {sc['label']} ({sc['topic_ko']})
 
 Rules:
-- Must be natural, practical, real-world usage (not textbook)
+- MUST be a real, widely-used expression that native speakers actually say in daily life
+- NOT textbook/formal — use casual, authentic spoken language
 - Difficulty: beginner ~ intermediate
 - Use proper mixed case for English (e.g. "How have you been?" not "HOW HAVE YOU BEEN?")
 - MUST be different from these recently used expressions:
@@ -47,6 +48,11 @@ Return ONLY this JSON:
   "context": "짧은 상황 설명 (15자 이내)",
   "bonus_expression": "a related bonus expression in {lc['name']}",
   "bonus_korean": "Korean translation of the bonus expression",
+  "vocab": [
+    {{"word": "word1 in {lc['name']}", "meaning": "Korean meaning", "pronunciation": "romanization if needed else null"}},
+    {{"word": "word2 in {lc['name']}", "meaning": "Korean meaning", "pronunciation": "romanization if needed else null"}},
+    {{"word": "word3 in {lc['name']}", "meaning": "Korean meaning", "pronunciation": "romanization if needed else null"}}
+  ],
   "emoji": "1~2 relevant emojis"
 }}"""
 
@@ -57,7 +63,7 @@ def generate(lang: str, slot: str) -> dict:
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=512,
+        max_tokens=768,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}],
     )
