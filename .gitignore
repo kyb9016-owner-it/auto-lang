@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+output/*.png
+output/*.jpg
+.DS_Store
+fonts/*.ttf
+fonts/*.otf
+venv/
+.venv/

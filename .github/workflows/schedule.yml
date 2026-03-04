@@ -1,0 +1,81 @@
+name: LangCard Studio — Auto Post
+
+on:
+  schedule:
+    - cron: "0 23 * * *"   # 08:00 KST (UTC-9 오프셋)
+    - cron: "0 3 * * *"    # 12:00 KST
+    - cron: "0 11 * * *"   # 20:00 KST
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "시간대 선택"
+        required: true
+        default: "morning"
+        type: choice
+        options:
+          - morning
+          - lunch
+          - evening
+      dry_run:
+        description: "Dry run (카드 생성만, 업로드 안 함)"
+        required: false
+        default: "false"
+        type: boolean
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install system fonts (emoji & CJK)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y fonts-noto-color-emoji fonts-noto-cjk
+
+      - name: Determine time slot
+        id: slot
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "slot=${{ github.event.inputs.slot }}" >> $GITHUB_OUTPUT
+          else
+            HOUR=$(date -u +%H)
+            if   [ "$HOUR" = "23" ]; then echo "slot=morning"  >> $GITHUB_OUTPUT
+            elif [ "$HOUR" = "03" ]; then echo "slot=lunch"    >> $GITHUB_OUTPUT
+            else                          echo "slot=evening"  >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Run LangCard pipeline
+        env:
+          ANTHROPIC_API_KEY:          ${{ secrets.ANTHROPIC_API_KEY }}
+          CLOUDINARY_URL:             ${{ secrets.CLOUDINARY_URL }}
+          INSTAGRAM_ACCESS_TOKEN:     ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          INSTAGRAM_BUSINESS_ID:      ${{ secrets.INSTAGRAM_BUSINESS_ID }}
+        run: |
+          DRY="${{ github.event.inputs.dry_run }}"
+          if [ "$DRY" = "true" ]; then
+            python main.py --slot ${{ steps.slot.outputs.slot }} --dry-run
+          else
+            python main.py --slot ${{ steps.slot.outputs.slot }}
+          fi
+
+      - name: Commit updated history
+        run: |
+          git config user.email "bot@langcard.studio"
+          git config user.name  "LangCard Bot"
+          git add history.json
+          git diff --staged --quiet || \
+            git commit -m "chore: update expression history [skip ci]" && \
+            git push
