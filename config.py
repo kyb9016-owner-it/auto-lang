@@ -6,20 +6,23 @@ SLOT_CONFIG = {
         "emoji": "🌅",
         "topic_ko": "인사 & 소개",
         "topic_en": "Greetings & Introductions",
+        "topic_badge": "GREETINGS",
         "cron_utc": "0 23 * * *",   # 08:00 KST
     },
     "lunch": {
         "label": "점심",
-        "emoji": "☀️",
+        "emoji": "☕",
         "topic_ko": "카페 & 식당",
         "topic_en": "Cafe & Restaurant",
+        "topic_badge": "CAFE",
         "cron_utc": "0 3 * * *",    # 12:00 KST
     },
     "evening": {
         "label": "저녁",
-        "emoji": "🌙",
+        "emoji": "✈️",
         "topic_ko": "여행 & 쇼핑",
         "topic_en": "Travel & Shopping",
+        "topic_badge": "TRAVEL",
         "cron_utc": "0 11 * * *",   # 20:00 KST
     },
 }
@@ -30,6 +33,7 @@ LANG_CONFIG = {
     "en": {
         "name": "English",
         "name_ko": "영어",
+        "name_native": "ENG",
         "flag": "🇺🇸",
         "has_pronunciation": False,
         "pronunciation_label": None,
@@ -37,6 +41,7 @@ LANG_CONFIG = {
     "zh": {
         "name": "Chinese",
         "name_ko": "중국어",
+        "name_native": "中文",
         "flag": "🇨🇳",
         "has_pronunciation": True,
         "pronunciation_label": "병음",
@@ -44,6 +49,7 @@ LANG_CONFIG = {
     "ja": {
         "name": "Japanese",
         "name_ko": "일본어",
+        "name_native": "日本語",
         "flag": "🇯🇵",
         "has_pronunciation": True,
         "pronunciation_label": "로마자",

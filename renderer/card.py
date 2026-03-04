@@ -257,20 +257,24 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
     main_fill = (*theme["text_main"], 255)
 
     # ── 상단 배지 ─────────────────────────────────────────────────────
-    badge_font = F.noto_kr(30)
+    # 언어 배지: 각 언어 자국어 표기 (ENG / 中文 / 日本語)
+    # 중일어는 NotoSans, 영어는 Poppins
+    lang_badge_font = F.noto_kr(30) if lang in ("zh", "ja") else F.outfit(30)
     img, draw, _ = _alpha_badge_emoji(
         img, PAD, BADGE_Y, radius=26,
-        bg=theme["lang_badge_bg"], emoji=lc["flag"], text=lc["name_ko"],
-        emoji_size=32, text_font=badge_font, fg=theme["lang_badge_fg"])
+        bg=theme["lang_badge_bg"], emoji=lc["flag"], text=lc["name_native"],
+        emoji_size=32, text_font=lang_badge_font, fg=theme["lang_badge_fg"])
 
-    slot_text = sc['topic_ko']
-    tmp_tb = ImageDraw.Draw(img).textbbox((0,0), slot_text, font=badge_font)
+    # 토픽 배지: 영어 단어 (GREETINGS / CAFE / TRAVEL)
+    slot_text = sc['topic_badge']
+    topic_font = F.outfit(28)
+    tmp_tb = ImageDraw.Draw(img).textbbox((0,0), slot_text, font=topic_font)
     slot_w = BADGE_PAD_X + 32 + 8 + (tmp_tb[2]-tmp_tb[0]) + BADGE_PAD_X
     sx = CARD_W - PAD - slot_w
     img, draw, _ = _alpha_badge_emoji(
         img, sx, BADGE_Y, radius=26,
         bg=theme["topic_badge_bg"], emoji=sc["emoji"], text=slot_text,
-        emoji_size=32, text_font=badge_font, fg=theme["topic_badge_fg"])
+        emoji_size=32, text_font=topic_font, fg=theme["topic_badge_fg"])
 
     # ── 메인 폰트 결정 ────────────────────────────────────────────────
     font_fn   = _main_font_fn(lang)
