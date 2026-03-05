@@ -190,6 +190,23 @@ def _th(draw: ImageDraw.Draw, text: str, font) -> int:
     return bb[3] - bb[1]
 
 
+def _section_label(draw: ImageDraw.Draw, y: int, text: str, font,
+                   text_fill: tuple, line_fill: tuple,
+                   card_w: int = 1080, pad: int = PAD) -> int:
+    """'─── 텍스트 ───' 스타일 섹션 레이블. 다음 y 반환."""
+    bb   = draw.textbbox((0, 0), text, font=font)
+    tw   = bb[2] - bb[0]
+    th   = bb[3] - bb[1]
+    tx   = (card_w - tw) // 2
+    ty   = y - bb[1]                        # bb[1] 오프셋 보정
+    line_y = y + (bb[3] + bb[1]) // 2      # 시각적 중앙 선
+    gap  = 14                               # 텍스트~선 간격
+    draw.line([(pad, line_y), (tx - gap, line_y)],           fill=line_fill, width=1)
+    draw.line([(tx + tw + gap, line_y), (card_w - pad, line_y)], fill=line_fill, width=1)
+    draw.text((tx, ty), text, font=font, fill=text_fill)
+    return y + th
+
+
 def _wrap(draw: ImageDraw.Draw, text: str, font, max_w: int,
           is_cjk: bool = False) -> list[str]:
     if is_cjk:
@@ -349,10 +366,10 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
     avail_h   = avail_bot - avail_top
     y = avail_top + max((avail_h - total_h) // 2, 0)
 
-    # ── "오늘의 표현" 레이블 (왼쪽 정렬) ─────────────────────────────
-    label_text = "오늘의 표현"
-    draw.text((PAD, y), label_text, font=label_font, fill=sub_fill)
-    y += _th(draw, label_text, label_font) + 12
+    # ── "오늘의 표현" 섹션 레이블 (─── 텍스트 ─── 스타일) ──────────
+    line_fill = (*ts[:3], ts[3]//3 if len(ts) > 3 else 80)
+    y = _section_label(draw, y, "오늘의 표현", label_font,
+                       sub_fill, line_fill) + 12
 
     # ── 메인 표현 (중앙 정렬) ─────────────────────────────────────────
     main_lines = _wrap(draw, data["main_expression"], main_font, USABLE_W, is_cjk)
@@ -417,10 +434,10 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
         draw.line([(PAD, vy), (CARD_W-PAD, vy)], fill=div_color, width=1)
         vy += DIVIDER_GAP // 2
 
-        # "오늘의 단어" 레이블 (왼쪽 정렬)
+        # "오늘의 단어" 섹션 레이블 (─── 텍스트 ─── 스타일)
         vl_text = "오늘의 단어"
-        draw.text((PAD, vy), vl_text, font=vl_font, fill=sub_fill)
-        vy += _th(draw, vl_text, vl_font) + 14
+        vy = _section_label(draw, vy, vl_text, vl_font,
+                            sub_fill, line_fill) + 14
 
         for item in vocab[:3]:
             word = item.get("word", "")
