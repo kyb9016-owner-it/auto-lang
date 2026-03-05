@@ -116,9 +116,9 @@ def _alpha_badge_emoji(img: Image.Image, x0: int, y0: int, radius: int,
                        bg: tuple, emoji: str, text: str, emoji_size: int,
                        text_font, fg: tuple,
                        pad_x: int = BADGE_PAD_X, pad_y: int = BADGE_PAD_Y):
-    """이모지 + 텍스트 배지. x1을 자동 계산해 반환."""
+    """이모지 + 텍스트 배지. 수직 중앙정렬 + 국기 PNG 지원."""
     tmp = ImageDraw.Draw(img)
-    tb = tmp.textbbox((0,0), text, font=text_font)
+    tb = tmp.textbbox((0, 0), text, font=text_font)
     tw = tb[2] - tb[0]
     gap = 8
     total_w = pad_x + emoji_size + gap + tw + pad_x
@@ -126,26 +126,40 @@ def _alpha_badge_emoji(img: Image.Image, x0: int, y0: int, radius: int,
     y1 = y0 + BADGE_H
 
     # 배지 배경
-    layer = Image.new("RGBA", img.size, (0,0,0,0))
-    ImageDraw.Draw(layer).rounded_rectangle([x0,y0,x1,y1], radius=radius, fill=bg)
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(layer).rounded_rectangle([x0, y0, x1, y1], radius=radius, fill=bg)
     img = Image.alpha_composite(img, layer)
 
-    # 이모지 (Color Emoji 폰트)
+    # 배지 수직 중앙 y
+    badge_cy = y0 + BADGE_H // 2
     ex = x0 + pad_x
-    if _EMOJI_FONT_PATH:
+
+    # 이모지: 국기면 PNG, 아니면 Color Emoji 폰트
+    fp = F.flag_path(emoji)
+    if fp:
+        # 국기 PNG — 수직 중앙정렬
+        ey = badge_cy - emoji_size // 2
+        flag_img = Image.open(fp).convert("RGBA").resize(
+            (emoji_size, emoji_size), Image.LANCZOS)
+        img.paste(flag_img, (ex, ey), flag_img)
+    elif _EMOJI_FONT_PATH:
         try:
             ef = ImageFont.truetype(_EMOJI_FONT_PATH, emoji_size)
-            el = Image.new("RGBA", img.size, (0,0,0,0))
-            ImageDraw.Draw(el).text((ex, y0 + pad_y), emoji,
+            ey = badge_cy - emoji_size // 2
+            el = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            ImageDraw.Draw(el).text((ex, ey), emoji,
                                     font=ef, embedded_color=True, anchor="lt")
             img = Image.alpha_composite(img, el)
         except Exception:
             pass
 
-    # 텍스트
+    # 텍스트: bb[1] 오프셋 보정으로 수직 중앙정렬
+    th = tb[3] - tb[1]
+    tx = ex + emoji_size + gap
+    ty = badge_cy - th // 2 - tb[1]
+
     draw = ImageDraw.Draw(img)
-    draw.text((ex + emoji_size + gap, y0 + pad_y), text,
-              font=text_font, fill=(*fg[:3], 255))
+    draw.text((tx, ty), text, font=text_font, fill=(*fg[:3], 255))
     return img, draw, x1
 
 
@@ -331,17 +345,18 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
 
     # ── 한국어 번역 pill (중앙) ───────────────────────────────────────
     ko_text = data["korean_translation"]
-    bb = draw.textbbox((0,0), ko_text, font=ko_font)
-    ktw = bb[2]-bb[0]; kth = bb[3]-bb[1]
+    bb = draw.textbbox((0, 0), ko_text, font=ko_font)
+    ktw = bb[2] - bb[0]; kth = bb[3] - bb[1]
     kpx, kpy = 28, 14
     kx0 = cx - ktw//2 - kpx; kx1 = cx + ktw//2 + kpx
-    ky1 = y + kth + kpy*2
-    layer = Image.new("RGBA", img.size, (0,0,0,0))
-    ImageDraw.Draw(layer).rounded_rectangle([kx0,y,kx1,ky1], radius=14,
+    ky1 = y + kth + kpy * 2
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(layer).rounded_rectangle([kx0, y, kx1, ky1], radius=14,
                                              fill=theme["kr_badge_bg"])
     img = Image.alpha_composite(img, layer)
     draw = ImageDraw.Draw(img)
-    draw.text((cx - ktw//2, y + kpy), ko_text, font=ko_font, fill=main_fill)
+    # bb[1] 오프셋 보정으로 pill 안에 수직 중앙정렬
+    draw.text((cx - ktw//2, y + kpy - bb[1]), ko_text, font=ko_font, fill=main_fill)
     y = ky1 + 14
 
     # ── 구분선 ───────────────────────────────────────────────────────

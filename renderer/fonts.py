@@ -1,11 +1,12 @@
 """폰트 로더 — 없으면 자동 다운로드"""
+from __future__ import annotations
 import os
-import re
 import requests
+from typing import Optional
 from PIL import ImageFont
 
 FONTS_DIR = os.path.join(os.path.dirname(__file__), "..", "fonts")
-_cache = {}
+_cache: dict = {}
 
 # GitHub raw URL에서 직접 TTF 다운로드
 _FONT_URLS = [
@@ -29,7 +30,37 @@ _FONT_URLS = [
         "NotoSansKR-Bold.ttf",
         "https://github.com/google/fonts/raw/main/ofl/notosanskr/NotoSansKR%5Bwght%5D.ttf",
     ),
+    # 국기 PNG (Twemoji 72x72)
+    (
+        "flag_us.png",
+        "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f1fa-1f1f8.png",
+    ),
+    (
+        "flag_cn.png",
+        "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f1e8-1f1f3.png",
+    ),
+    (
+        "flag_jp.png",
+        "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f1ef-1f1f5.png",
+    ),
 ]
+
+# 국기 이모지 → PNG 파일명 매핑
+_FLAG_MAP = {
+    "🇺🇸": "flag_us.png",
+    "🇨🇳": "flag_cn.png",
+    "🇯🇵": "flag_jp.png",
+}
+
+
+def flag_path(emoji: str) -> Optional[str]:
+    """국기 이모지 → PNG 절대경로. 없으면 None."""
+    filename = _FLAG_MAP.get(emoji)
+    if filename:
+        p = os.path.join(FONTS_DIR, filename)
+        if os.path.exists(p):
+            return p
+    return None
 
 
 def _download_font(filename, url):
