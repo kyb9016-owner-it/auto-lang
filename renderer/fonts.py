@@ -102,6 +102,26 @@ def get(filename: str, size: int) -> ImageFont.FreeTypeFont:
     return _cache[key]
 
 
+def _get_bold(filename: str, size: int, weight: int = 700) -> ImageFont.FreeTypeFont:
+    """Variable font에서 Bold(700) 인스턴스를 반환. 별도 캐시 키 사용."""
+    key = (filename, size, weight)
+    if key not in _cache:
+        full = _path(filename)
+        if os.path.exists(full):
+            f = ImageFont.truetype(full, size)
+            try:
+                f.set_variation_by_axes([weight])
+            except Exception:
+                try:
+                    f.set_variation_by_name("Bold")
+                except Exception:
+                    pass
+            _cache[key] = f
+        else:
+            _cache[key] = ImageFont.load_default(size)
+    return _cache[key]
+
+
 # 편의 함수들
 def bold(size: int) -> ImageFont.FreeTypeFont:
     return get("Boldonse-Regular.ttf", size)
@@ -110,13 +130,13 @@ def outfit(size: int) -> ImageFont.FreeTypeFont:
     return get("Poppins-ExtraBold.ttf", size)
 
 def noto_jp(size: int) -> ImageFont.FreeTypeFont:
-    return get("NotoSansJP-Bold.ttf", size)
+    return _get_bold("NotoSansJP-Bold.ttf", size)
 
 def noto_sc(size: int) -> ImageFont.FreeTypeFont:
-    return get("NotoSansSC-Bold.ttf", size)
+    return _get_bold("NotoSansSC-Bold.ttf", size)
 
 def noto_kr(size: int) -> ImageFont.FreeTypeFont:
-    return get("NotoSansKR-Bold.ttf", size)
+    return _get_bold("NotoSansKR-Bold.ttf", size)
 
 def lang_font(lang: str, size: int) -> ImageFont.FreeTypeFont:
     """언어에 맞는 폰트 반환"""
