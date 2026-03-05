@@ -31,6 +31,8 @@ def _build_caption(slot: str, all_data: dict[str, dict]) -> str:
         "",
     ]
     for lang in ("en", "zh", "ja"):
+        if lang not in all_data:
+            continue
         lc = LANG_CONFIG[lang]
         d = all_data[lang]
         lines.append(f"{lc['flag']} {lc['name_ko']}")
@@ -93,24 +95,40 @@ def _wait_ready(container_id: str, timeout: int = 120) -> None:
 def post_carousel(image_urls: dict[str, str], slot: str,
                   all_data: dict[str, dict]) -> str:
     """
-    3개 언어 이미지를 캐러셀로 포스팅.
-    image_urls: {"en": url, "zh": url, "ja": url}
-    all_data:   {"en": {...}, "zh": {...}, "ja": {...}}
+    언어 이미지를 포스팅 (1개면 단일 이미지, 2개+ 면 캐러셀).
+    image_urls: {"en": url, ...}
+    all_data:   {"en": {...}, ...}
     반환: 게시된 media_id
     """
-    print("  → 이미지 컨테이너 생성 중...")
-    child_ids = []
-    for lang in ("en", "zh", "ja"):
-        cid = _create_image_container(image_urls[lang])
-        _wait_ready(cid)
-        child_ids.append(cid)
-        print(f"    ✓ {lang} 컨테이너: {cid}")
-
+    langs = [l for l in ("en", "zh", "ja") if l in image_urls]
     caption = _build_caption(slot, all_data)
-    print("  → 캐러셀 컨테이너 생성 중...")
-    carousel_id = _create_carousel_container(child_ids, caption)
 
-    print("  → 게시 중...")
-    media_id = _publish(carousel_id)
+    if len(langs) == 1:
+        # 단일 이미지 포스팅
+        print("  → 단일 이미지 컨테이너 생성 중...")
+        params = {
+            "image_url": image_urls[langs[0]],
+            "caption": caption,
+        }
+        result = _api("POST", f"{IG_ID}/media", params=params)
+        cid = result["id"]
+        _wait_ready(cid)
+        print("  → 게시 중...")
+        media_id = _publish(cid)
+    else:
+        # 캐러셀 포스팅
+        print("  → 이미지 컨테이너 생성 중...")
+        child_ids = []
+        for lang in langs:
+            cid = _create_image_container(image_urls[lang])
+            _wait_ready(cid)
+            child_ids.append(cid)
+            print(f"    ✓ {lang} 컨테이너: {cid}")
+
+        print("  → 캐러셀 컨테이너 생성 중...")
+        carousel_id = _create_carousel_container(child_ids, caption)
+        print("  → 게시 중...")
+        media_id = _publish(carousel_id)
+
     print(f"  ✓ 포스팅 완료! media_id: {media_id}")
     return media_id

@@ -324,9 +324,11 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
     zone_h = _EXPR_ZONE_BOTTOM - _EXPR_ZONE_TOP
     y = _EXPR_ZONE_TOP + max((zone_h - expr_h) // 2, 0)
 
-    # ── "오늘의 표현" 레이블 ──────────────────────────────────────────
-    draw.text((PAD, y), "오늘의 표현", font=label_font, fill=sub_fill)
-    y += _th(draw, "오늘의 표현", label_font) + 12
+    # ── "오늘의 표현" 레이블 (중앙 정렬) ─────────────────────────────
+    label_text = "오늘의 표현"
+    llw = _tw(draw, label_text, label_font)
+    draw.text(((CARD_W - llw) // 2, y), label_text, font=label_font, fill=sub_fill)
+    y += _th(draw, label_text, label_font) + 12
 
     # ── 메인 표현 (중앙 정렬) ─────────────────────────────────────────
     main_lines = _wrap(draw, data["main_expression"], main_font, USABLE_W, is_cjk)
@@ -391,10 +393,12 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
         draw.line([(PAD, vy), (CARD_W-PAD, vy)], fill=div_color, width=1)
         vy += 20
 
-        # "오늘의 단어" 레이블
+        # "오늘의 단어" 레이블 (중앙 정렬)
         vl_font = F.noto_kr(26)
-        draw.text((PAD, vy), "오늘의 단어", font=vl_font, fill=sub_fill)
-        vy += _th(draw, "오늘의 단어", vl_font) + 14
+        vl_text = "오늘의 단어"
+        vlw = _tw(draw, vl_text, vl_font)
+        draw.text(((CARD_W - vlw) // 2, vy), vl_text, font=vl_font, fill=sub_fill)
+        vy += _th(draw, vl_text, vl_font) + 14
 
         # 단어 3개: [단어]  뜻
         word_font   = font_fn(34)
