@@ -295,7 +295,7 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
     main_font, _ = _fit_font(draw, data["main_expression"],
                               font_fn, USABLE_W, start=96, stop=44)
 
-    # ── 표현 구역 높이 측정 → 중앙 배치 ──────────────────────────────
+    # ── 표현 구역 높이 측정 → 배지 하단~단어구역 사이 세로 중앙 배치 ─────
     label_font = F.noto_kr(28)
     pron_font  = F.noto_kr(36)
     ko_font    = F.noto_kr(52)
@@ -321,8 +321,11 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
         return h
 
     expr_h = _expr_height()
-    zone_h = _EXPR_ZONE_BOTTOM - _EXPR_ZONE_TOP
-    y = _EXPR_ZONE_TOP + max((zone_h - expr_h) // 2, 0)
+    # 배지 하단(y=112)부터 단어구역 상단(y=720)까지의 공간에서 세로 중앙
+    _expr_avail_top = BADGE_Y + BADGE_H + 36   # 배지 아래 36px 여유
+    _expr_avail_bot = _VOCAB_ZONE_TOP - 10     # 단어구역 시작 10px 위
+    _avail_h = _expr_avail_bot - _expr_avail_top
+    y = _expr_avail_top + max((_avail_h - expr_h) // 2, 0)
 
     # ── "오늘의 표현" 레이블 (중앙 정렬) ─────────────────────────────
     label_text = "오늘의 표현"
