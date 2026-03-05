@@ -321,16 +321,15 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
         return h
 
     expr_h = _expr_height()
-    # 배지 하단(y=112)부터 단어구역 상단(y=720)까지의 공간에서 세로 중앙
-    _expr_avail_top = BADGE_Y + BADGE_H + 36   # 배지 아래 36px 여유
-    _expr_avail_bot = _VOCAB_ZONE_TOP - 10     # 단어구역 시작 10px 위
+    # 배지 하단~단어구역 사이에서 위아래 여백 균등하게 세로 중앙 배치
+    _expr_avail_top = BADGE_Y + BADGE_H   # 배지 하단 (y=112)
+    _expr_avail_bot = _VOCAB_ZONE_TOP     # 단어구역 상단 (y=720)
     _avail_h = _expr_avail_bot - _expr_avail_top
     y = _expr_avail_top + max((_avail_h - expr_h) // 2, 0)
 
-    # ── "오늘의 표현" 레이블 (중앙 정렬) ─────────────────────────────
+    # ── "오늘의 표현" 레이블 (왼쪽 정렬) ─────────────────────────────
     label_text = "오늘의 표현"
-    llw = _tw(draw, label_text, label_font)
-    draw.text(((CARD_W - llw) // 2, y), label_text, font=label_font, fill=sub_fill)
+    draw.text((PAD, y), label_text, font=label_font, fill=sub_fill)
     y += _th(draw, label_text, label_font) + 12
 
     # ── 메인 표현 (중앙 정렬) ─────────────────────────────────────────
@@ -396,11 +395,10 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
         draw.line([(PAD, vy), (CARD_W-PAD, vy)], fill=div_color, width=1)
         vy += 20
 
-        # "오늘의 단어" 레이블 (중앙 정렬)
+        # "오늘의 단어" 레이블 (왼쪽 정렬)
         vl_font = F.noto_kr(26)
         vl_text = "오늘의 단어"
-        vlw = _tw(draw, vl_text, vl_font)
-        draw.text(((CARD_W - vlw) // 2, vy), vl_text, font=vl_font, fill=sub_fill)
+        draw.text((PAD, vy), vl_text, font=vl_font, fill=sub_fill)
         vy += _th(draw, vl_text, vl_font) + 14
 
         # 단어 3개: [단어]  뜻
