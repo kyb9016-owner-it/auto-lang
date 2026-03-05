@@ -17,10 +17,11 @@ def _init_cloudinary():
 _init_cloudinary()
 
 
-def upload(image_path: str, lang: str, slot: str) -> str:
+def upload(image_path: str, lang: str, slot: str, suffix: str = "") -> str:
     """이미지를 Cloudinary에 업로드하고 public URL 반환"""
     today = date.today().strftime("%Y%m%d")
-    public_id = f"langcard/{slot}_{lang}_{today}"
+    tag = f"_{suffix}" if suffix else ""
+    public_id = f"langcard/{slot}_{lang}{tag}_{today}"
 
     result = cloudinary.uploader.upload(
         image_path,

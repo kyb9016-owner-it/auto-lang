@@ -23,29 +23,43 @@ def _api(method: str, endpoint: str, **kwargs) -> dict:
     return data
 
 
-def _build_caption(slot: str, all_data: dict[str, dict]) -> str:
+def _build_caption(slot: str, all_data: dict[str, dict],
+                   is_vocab: bool = False) -> str:
     """캐러셀 전체 캡션 생성"""
     sc = SLOT_CONFIG[slot]
-    lines = [
-        f"{sc['emoji']} {sc['label']}의 {sc['topic_ko']} 표현",
-        "",
-    ]
-    for lang in ("en", "zh", "ja"):
-        if lang not in all_data:
-            continue
-        lc = LANG_CONFIG[lang]
-        d = all_data[lang]
-        lines.append(f"{lc['flag']} {lc['name_ko']}")
-        lines.append(f'"{d["main_expression"]}"')
-        if lc["has_pronunciation"] and d.get("pronunciation"):
-            lines.append(f"({d['pronunciation']})")
-        lines.append(f"→ {d['korean_translation']}")
-        lines.append("")
-    lines += [
-        "💾 저장하고 매일 복습해요!",
-        "",
-        HASHTAGS,
-    ]
+    if is_vocab:
+        lines = [
+            f"{sc['emoji']} {sc['label']}의 {sc['topic_ko']} 단어",
+            "",
+        ]
+        for lang in ("en", "zh", "ja"):
+            if lang not in all_data:
+                continue
+            lc = LANG_CONFIG[lang]
+            vocab = all_data[lang].get("vocab", [])
+            lines.append(f"{lc['flag']} {lc['name_ko']}")
+            for item in vocab:
+                pron = f" ({item['pronunciation']})" if lc["has_pronunciation"] and item.get("pronunciation") else ""
+                lines.append(f"  • {item['word']}{pron}  →  {item['meaning']}")
+            lines.append("")
+        lines += ["📚 단어도 꼭 챙겨가세요!", "", HASHTAGS]
+    else:
+        lines = [
+            f"{sc['emoji']} {sc['label']}의 {sc['topic_ko']} 표현",
+            "",
+        ]
+        for lang in ("en", "zh", "ja"):
+            if lang not in all_data:
+                continue
+            lc = LANG_CONFIG[lang]
+            d = all_data[lang]
+            lines.append(f"{lc['flag']} {lc['name_ko']}")
+            lines.append(f'"{d["main_expression"]}"')
+            if lc["has_pronunciation"] and d.get("pronunciation"):
+                lines.append(f"({d['pronunciation']})")
+            lines.append(f"→ {d['korean_translation']}")
+            lines.append("")
+        lines += ["💾 저장하고 매일 복습해요!", "", HASHTAGS]
     return "\n".join(lines)
 
 
@@ -93,7 +107,7 @@ def _wait_ready(container_id: str, timeout: int = 120) -> None:
 
 
 def post_carousel(image_urls: dict[str, str], slot: str,
-                  all_data: dict[str, dict]) -> str:
+                  all_data: dict[str, dict], is_vocab: bool = False) -> str:
     """
     언어 이미지를 포스팅 (1개면 단일 이미지, 2개+ 면 캐러셀).
     image_urls: {"en": url, ...}
@@ -101,7 +115,7 @@ def post_carousel(image_urls: dict[str, str], slot: str,
     반환: 게시된 media_id
     """
     langs = [l for l in ("en", "zh", "ja") if l in image_urls]
-    caption = _build_caption(slot, all_data)
+    caption = _build_caption(slot, all_data, is_vocab=is_vocab)
 
     if len(langs) == 1:
         # 단일 이미지 포스팅

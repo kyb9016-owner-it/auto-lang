@@ -312,18 +312,12 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
     main_font, _ = _fit_font(draw, data["main_expression"],
                               font_fn, USABLE_W, start=96, stop=44)
 
-    # ── 폰트 선언 (높이 계산에도 사용) ──────────────────────────────────
+    # ── 폰트 선언 ────────────────────────────────────────────────────
     label_font  = F.noto_kr(28)
     pron_font   = F.noto_kr(36)
     ko_font     = F.noto_kr(52)
     bonus_font  = font_fn(40)
     bko_font    = F.noto_kr(34)
-    word_font   = font_fn(34)
-    mean_font   = F.noto_kr(30)
-    pron_v_font = F.noto_kr(26)
-    vl_font     = F.noto_kr(26)
-    row_gap     = 14
-    vocab       = data.get("vocab", [])
 
     def _expr_height() -> int:
         h  = _th(draw, "오늘의 표현", label_font) + 12
@@ -343,33 +337,18 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
         if bko: h += _th(draw, bko, bko_font)
         return h
 
-    def _vocab_height() -> int:
-        if not vocab: return 0
-        h = _th(draw, "오늘의 단어", vl_font) + 14
-        for item in vocab[:3]:
-            word = item.get("word",""); mean = item.get("meaning","")
-            pron = item.get("pronunciation") or ""
-            row_h = max(_th(draw, word, word_font), _th(draw, mean, mean_font))
-            if pron and lc["has_pronunciation"]:
-                h += row_h + 2 + _th(draw, pron, pron_v_font) + row_gap
-            else:
-                h += row_h + row_gap
-        return h
-
-    expr_h  = _expr_height()
-    vocab_h = _vocab_height()
-    # 표현 + 구분선 + 단어를 하나의 블록으로 묶어 카드 세로 중앙 배치
-    DIVIDER_GAP = 48   # 섹션 간 구분선 전후 여백 합계
-    total_h = expr_h + (DIVIDER_GAP + vocab_h if vocab else 0)
-    avail_top = BADGE_Y + BADGE_H   # 배지 하단 y=112
-    avail_bot = CARD_H - 50         # 워터마크 위 y=1030
+    # 표현 콘텐츠만 카드 세로 중앙 배치
+    expr_h    = _expr_height()
+    avail_top = BADGE_Y + BADGE_H   # y=112
+    avail_bot = CARD_H - 50         # y=1030
     avail_h   = avail_bot - avail_top
-    y = avail_top + max((avail_h - total_h) // 2, 0)
+    y = avail_top + max((avail_h - expr_h) // 2, 0)
 
-    # ── "오늘의 표현" 섹션 레이블 (─── 텍스트 ─── 스타일) ──────────
-    line_fill = (*ts[:3], ts[3]//3 if len(ts) > 3 else 80)
-    y = _section_label(draw, y, "오늘의 표현", label_font,
-                       sub_fill, line_fill) + 12
+    # ── "오늘의 표현" 레이블 (중앙, 선 없음) ──────────────────────────
+    lbl_bb = draw.textbbox((0, 0), "오늘의 표현", font=label_font)
+    draw.text(((CARD_W - (lbl_bb[2]-lbl_bb[0])) // 2, y - lbl_bb[1]),
+              "오늘의 표현", font=label_font, fill=sub_fill)
+    y += _th(draw, "오늘의 표현", label_font) + 12
 
     # ── 메인 표현 (중앙 정렬) ─────────────────────────────────────────
     main_lines = _wrap(draw, data["main_expression"], main_font, USABLE_W, is_cjk)
@@ -425,44 +404,6 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
     if bko:
         bkow = _tw(draw, bko, bko_font)
         draw.text(((CARD_W-bkow)//2, y), bko, font=bko_font, fill=sub_fill)
-        y += _th(draw, bko, bko_font)   # expr 블록 끝 y 추적
-
-    # ── 단어 구역 (표현 블록 바로 아래, 동적 위치) ────────────────────
-    if vocab:
-        # 구분선: expr 끝에서 DIVIDER_GAP/2 아래
-        vy = y + DIVIDER_GAP // 2
-        draw.line([(PAD, vy), (CARD_W-PAD, vy)], fill=div_color, width=1)
-        vy += DIVIDER_GAP // 2
-
-        # "오늘의 단어" 섹션 레이블 (─── 텍스트 ─── 스타일)
-        vl_text = "오늘의 단어"
-        vy = _section_label(draw, vy, vl_text, vl_font,
-                            sub_fill, line_fill) + 14
-
-        for item in vocab[:3]:
-            word = item.get("word", "")
-            mean = item.get("meaning", "")
-            pron = item.get("pronunciation") or ""
-
-            ww = _tw(draw, word, word_font)
-            mw = _tw(draw, mean, mean_font)
-            sep = "  "
-            sw = _tw(draw, sep, word_font)
-            total = ww + sw + mw
-            tx = (CARD_W - total) // 2
-
-            draw.text((tx, vy), word, font=word_font, fill=main_fill)
-            draw.text((tx + ww + sw, vy), mean, font=mean_font, fill=sub_fill)
-
-            row_h = max(_th(draw, word, word_font), _th(draw, mean, mean_font))
-            if pron and lc["has_pronunciation"]:
-                vy += row_h + 2
-                pw2 = _tw(draw, pron, pron_v_font)
-                draw.text(((CARD_W-pw2)//2, vy), pron,
-                          font=pron_v_font, fill=sub_fill)
-                vy += _th(draw, pron, pron_v_font) + row_gap
-            else:
-                vy += row_h + row_gap
 
     # ── 워터마크 ─────────────────────────────────────────────────────
     wm_font = F.noto_kr(22)
@@ -478,4 +419,128 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
     if save:
         img.convert("RGB").save(out_path, "PNG", optimize=True)
         print(f"  ✓ 카드 저장: {out_path}")
+    return out_path
+
+
+# ── 단어 전용 카드 렌더러 ─────────────────────────────────────────────────────
+
+def render_vocab(data: dict, lang: str, slot: str, save: bool = True) -> str:
+    """단어 전용 카드 렌더링."""
+    F.ensure_fonts()
+
+    theme  = CARD_THEMES[(lang, slot)]
+    lc     = LANG_CONFIG[lang]
+    sc     = SLOT_CONFIG[slot]
+    is_cjk = lang in ("zh", "ja")
+    cx     = CARD_W // 2
+
+    # ── 배경 ─────────────────────────────────────────────────────────
+    g = theme["gradient"]
+    bg = _gradient(CARD_W, CARD_H, g[0], g[1], g[2] if len(g)>2 else None)
+    img = bg.convert("RGBA")
+    img = _dot_overlay(img, theme["text_main"])
+    img = _emoji_bg(img, theme["emoji"])
+    draw = ImageDraw.Draw(img)
+
+    ts        = theme["text_sub"]
+    sub_fill  = (*ts[:3], ts[3] if len(ts)>3 else 200)
+    main_fill = (*theme["text_main"], 255)
+
+    # ── 상단 배지 ─────────────────────────────────────────────────────
+    lang_badge_font = F.noto_kr(30) if lang in ("zh", "ja") else F.outfit(30)
+    img, draw, _ = _alpha_badge_emoji(
+        img, PAD, BADGE_Y, radius=26,
+        bg=theme["lang_badge_bg"], emoji=lc["flag"], text=lc["name_native"],
+        emoji_size=32, text_font=lang_badge_font, fg=theme["lang_badge_fg"])
+
+    slot_text  = sc["topic_badge"]
+    topic_font = F.outfit(28)
+    tmp_tb     = ImageDraw.Draw(img).textbbox((0,0), slot_text, font=topic_font)
+    slot_w     = BADGE_PAD_X + 32 + 8 + (tmp_tb[2]-tmp_tb[0]) + BADGE_PAD_X
+    img, draw, _ = _alpha_badge_emoji(
+        img, CARD_W - PAD - slot_w, BADGE_Y, radius=26,
+        bg=theme["topic_badge_bg"], emoji=sc["emoji"], text=slot_text,
+        emoji_size=32, text_font=topic_font, fg=theme["topic_badge_fg"])
+
+    font_fn     = _main_font_fn(lang)
+    vocab       = data.get("vocab", [])
+    word_font   = font_fn(52)          # 표현 카드보다 크게
+    mean_font   = F.noto_kr(38)
+    pron_font   = F.noto_kr(30)
+    lbl_font    = F.noto_kr(28)
+    item_gap    = 52                   # 단어 항목 간 간격
+
+    # ── 높이 측정 → 세로 중앙 ────────────────────────────────────────
+    def _vocab_block_h() -> int:
+        h = _th(draw, "오늘의 단어", lbl_font) + 28   # 레이블 + 아래 여백
+        for item in vocab[:3]:
+            word = item.get("word","")
+            mean = item.get("meaning","")
+            pron = item.get("pronunciation") or ""
+            row_h = max(_th(draw, word, word_font), _th(draw, mean, mean_font))
+            h += row_h
+            if pron and lc["has_pronunciation"]:
+                h += 6 + _th(draw, pron, pron_font)
+            h += item_gap
+        return h - item_gap   # 마지막 gap 제거
+
+    block_h   = _vocab_block_h()
+    avail_top = BADGE_Y + BADGE_H
+    avail_bot = CARD_H - 50
+    vy = avail_top + max((avail_bot - avail_top - block_h) // 2, 0)
+
+    # ── "오늘의 단어" 레이블 (중앙) ─────────────────────────────────
+    lbl_bb = draw.textbbox((0,0), "오늘의 단어", font=lbl_font)
+    draw.text(((CARD_W - (lbl_bb[2]-lbl_bb[0])) // 2, vy - lbl_bb[1]),
+              "오늘의 단어", font=lbl_font, fill=sub_fill)
+    vy += _th(draw, "오늘의 단어", lbl_font) + 28
+
+    # ── 단어 항목 ────────────────────────────────────────────────────
+    for i, item in enumerate(vocab[:3]):
+        word = item.get("word","")
+        mean = item.get("meaning","")
+        pron = item.get("pronunciation") or ""
+
+        # 단어 + 뜻 한 줄
+        ww   = _tw(draw, word, word_font)
+        mw   = _tw(draw, mean, mean_font)
+        sep  = "  "
+        sw   = _tw(draw, sep, word_font)
+        row_w = ww + sw + mw
+        tx   = (CARD_W - row_w) // 2
+
+        # 베이스라인 맞춤: word(대) + mean(소) 수직 중앙
+        wh = _th(draw, word, word_font)
+        mh = _th(draw, mean, mean_font)
+        row_h = max(wh, mh)
+        wb = draw.textbbox((0,0), word, font=word_font)
+        mb = draw.textbbox((0,0), mean, font=mean_font)
+        draw.text((tx,          vy + (row_h - wh) // 2 - wb[1]), word, font=word_font, fill=main_fill)
+        draw.text((tx+ww+sw,    vy + (row_h - mh) // 2 - mb[1]), mean, font=mean_font, fill=sub_fill)
+        vy += row_h
+
+        if pron and lc["has_pronunciation"]:
+            vy += 6
+            pb   = draw.textbbox((0,0), pron, font=pron_font)
+            pw   = pb[2] - pb[0]
+            draw.text(((CARD_W-pw)//2, vy - pb[1]), pron, font=pron_font, fill=sub_fill)
+            vy += _th(draw, pron, pron_font)
+
+        if i < len(vocab[:3]) - 1:
+            vy += item_gap
+
+    # ── 워터마크 ─────────────────────────────────────────────────────
+    wm_font = F.noto_kr(22)
+    wm      = "@langcard.studio"
+    wmw     = _tw(draw, wm, wm_font)
+    draw.text(((CARD_W-wmw)//2, CARD_H - 38), wm,
+              font=wm_font, fill=(*ts[:3], ts[3]//2 if len(ts)>3 else 90))
+
+    # ── 저장 ─────────────────────────────────────────────────────────
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    today    = date.today().strftime("%Y%m%d")
+    out_path = os.path.join(OUTPUT_DIR, f"{slot}_{lang}_vocab_{today}.png")
+    if save:
+        img.convert("RGB").save(out_path, "PNG", optimize=True)
+        print(f"  ✓ 단어 카드 저장: {out_path}")
     return out_path

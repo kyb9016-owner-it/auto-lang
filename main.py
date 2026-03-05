@@ -43,13 +43,14 @@ def run(slot: str, langs: list[str], dry_run: bool) -> None:
             print(f"  ✗ {lang} 생성 실패: {e}")
             sys.exit(1)
 
-    # 3) 카드 이미지 렌더링
+    # 3) 카드 이미지 렌더링 (표현 카드 + 단어 카드)
     print(f"\n[3/4] 카드 이미지 렌더링")
     image_paths: dict[str, str] = {}
+    vocab_paths: dict[str, str] = {}
     for lang in langs:
         try:
-            path = card_renderer.render(all_data[lang], lang, slot)
-            image_paths[lang] = path
+            image_paths[lang] = card_renderer.render(all_data[lang], lang, slot)
+            vocab_paths[lang] = card_renderer.render_vocab(all_data[lang], lang, slot)
         except Exception as e:
             print(f"  ✗ {lang} 렌더링 실패: {e}")
             sys.exit(1)
@@ -57,28 +58,41 @@ def run(slot: str, langs: list[str], dry_run: bool) -> None:
     if dry_run:
         print("\n[dry-run] 업로드 생략. 카드 저장 위치:")
         for lang, path in image_paths.items():
-            print(f"  {lang}: {path}")
+            print(f"  표현 {lang}: {path}")
+        for lang, path in vocab_paths.items():
+            print(f"  단어 {lang}: {path}")
         print("\n완료!")
         return
 
     # 4) Cloudinary 업로드
     print(f"\n[4/4] Cloudinary 업로드 & Instagram 포스팅")
     image_urls: dict[str, str] = {}
+    vocab_urls: dict[str, str] = {}
     for lang in langs:
         try:
-            url = cloudinary_up.upload(image_paths[lang], lang, slot)
-            image_urls[lang] = url
+            image_urls[lang] = cloudinary_up.upload(image_paths[lang], lang, slot)
+            vocab_urls[lang]  = cloudinary_up.upload(vocab_paths[lang],  lang, slot, suffix="vocab")
         except Exception as e:
             print(f"  ✗ {lang} 업로드 실패: {e}")
             sys.exit(1)
 
-    # 5) Instagram 캐러셀 포스팅
+    # 5-a) 표현 캐러셀 포스팅
     try:
         media_id = instagram.post_carousel(image_urls, slot, all_data)
-        print(f"\n✅ 포스팅 완료! media_id: {media_id}")
+        print(f"  ✅ 표현 포스팅 완료! media_id: {media_id}")
     except Exception as e:
-        print(f"\n✗ Instagram 포스팅 실패: {e}")
+        print(f"\n✗ 표현 Instagram 포스팅 실패: {e}")
         sys.exit(1)
+
+    # 5-b) 단어 캐러셀 포스팅
+    try:
+        vocab_id = instagram.post_carousel(vocab_urls, slot, all_data, is_vocab=True)
+        print(f"  ✅ 단어 포스팅 완료! media_id: {vocab_id}")
+    except Exception as e:
+        print(f"\n✗ 단어 Instagram 포스팅 실패: {e}")
+        sys.exit(1)
+
+    print(f"\n✅ 전체 포스팅 완료!")
 
 
 def main():
