@@ -295,12 +295,18 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
     main_font, _ = _fit_font(draw, data["main_expression"],
                               font_fn, USABLE_W, start=96, stop=44)
 
-    # ── 표현 구역 높이 측정 → 배지 하단~단어구역 사이 세로 중앙 배치 ─────
-    label_font = F.noto_kr(28)
-    pron_font  = F.noto_kr(36)
-    ko_font    = F.noto_kr(52)
-    bonus_font = font_fn(40)
-    bko_font   = F.noto_kr(34)
+    # ── 폰트 선언 (높이 계산에도 사용) ──────────────────────────────────
+    label_font  = F.noto_kr(28)
+    pron_font   = F.noto_kr(36)
+    ko_font     = F.noto_kr(52)
+    bonus_font  = font_fn(40)
+    bko_font    = F.noto_kr(34)
+    word_font   = font_fn(34)
+    mean_font   = F.noto_kr(30)
+    pron_v_font = F.noto_kr(26)
+    vl_font     = F.noto_kr(26)
+    row_gap     = 14
+    vocab       = data.get("vocab", [])
 
     def _expr_height() -> int:
         h  = _th(draw, "오늘의 표현", label_font) + 12
@@ -320,12 +326,28 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
         if bko: h += _th(draw, bko, bko_font)
         return h
 
-    expr_h = _expr_height()
-    # 배지 하단~단어구역 사이에서 위아래 여백 균등하게 세로 중앙 배치
-    _expr_avail_top = BADGE_Y + BADGE_H   # 배지 하단 (y=112)
-    _expr_avail_bot = _VOCAB_ZONE_TOP     # 단어구역 상단 (y=720)
-    _avail_h = _expr_avail_bot - _expr_avail_top
-    y = _expr_avail_top + max((_avail_h - expr_h) // 2, 0)
+    def _vocab_height() -> int:
+        if not vocab: return 0
+        h = _th(draw, "오늘의 단어", vl_font) + 14
+        for item in vocab[:3]:
+            word = item.get("word",""); mean = item.get("meaning","")
+            pron = item.get("pronunciation") or ""
+            row_h = max(_th(draw, word, word_font), _th(draw, mean, mean_font))
+            if pron and lc["has_pronunciation"]:
+                h += row_h + 2 + _th(draw, pron, pron_v_font) + row_gap
+            else:
+                h += row_h + row_gap
+        return h
+
+    expr_h  = _expr_height()
+    vocab_h = _vocab_height()
+    # 표현 + 구분선 + 단어를 하나의 블록으로 묶어 카드 세로 중앙 배치
+    DIVIDER_GAP = 48   # 섹션 간 구분선 전후 여백 합계
+    total_h = expr_h + (DIVIDER_GAP + vocab_h if vocab else 0)
+    avail_top = BADGE_Y + BADGE_H   # 배지 하단 y=112
+    avail_bot = CARD_H - 50         # 워터마크 위 y=1030
+    avail_h   = avail_bot - avail_top
+    y = avail_top + max((avail_h - total_h) // 2, 0)
 
     # ── "오늘의 표현" 레이블 (왼쪽 정렬) ─────────────────────────────
     label_text = "오늘의 표현"
@@ -386,26 +408,19 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
     if bko:
         bkow = _tw(draw, bko, bko_font)
         draw.text(((CARD_W-bkow)//2, y), bko, font=bko_font, fill=sub_fill)
+        y += _th(draw, bko, bko_font)   # expr 블록 끝 y 추적
 
-    # ── 단어 구역 ─────────────────────────────────────────────────────
-    vocab = data.get("vocab", [])
+    # ── 단어 구역 (표현 블록 바로 아래, 동적 위치) ────────────────────
     if vocab:
-        vy = _VOCAB_ZONE_TOP
-        # 구분선
+        # 구분선: expr 끝에서 DIVIDER_GAP/2 아래
+        vy = y + DIVIDER_GAP // 2
         draw.line([(PAD, vy), (CARD_W-PAD, vy)], fill=div_color, width=1)
-        vy += 20
+        vy += DIVIDER_GAP // 2
 
         # "오늘의 단어" 레이블 (왼쪽 정렬)
-        vl_font = F.noto_kr(26)
         vl_text = "오늘의 단어"
         draw.text((PAD, vy), vl_text, font=vl_font, fill=sub_fill)
         vy += _th(draw, vl_text, vl_font) + 14
-
-        # 단어 3개: [단어]  뜻
-        word_font   = font_fn(34)
-        mean_font   = F.noto_kr(30)
-        pron_v_font = F.noto_kr(26)
-        row_gap = 14
 
         for item in vocab[:3]:
             word = item.get("word", "")
