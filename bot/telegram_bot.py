@@ -203,15 +203,14 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @owner_only
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📖 *LangCard Studio 봇 명령어*\n\n"
+        "📖 LangCard Studio 봇 명령어\n\n"
         "/morning — 아침 슬롯 실행 🌅\n"
         "/lunch — 점심 슬롯 실행 ☕\n"
         "/evening — 저녁 슬롯 실행 ✈️\n"
-        "/dry \\[morning|lunch|evening\\] — 드라이런 🧪\n"
+        "/dry [morning|lunch|evening] — 드라이런 🧪\n"
         "/promo — 고정 캐러셀 2종 포스팅 📌\n"
         "/status — 서버 상태 확인 🔍\n"
         "/help — 이 메시지",
-        parse_mode="MarkdownV2",
     )
 
 
