@@ -1,0 +1,200 @@
+"""TTS 음성 생성 — edge-tts (Microsoft Azure 무료 고품질 TTS)"""
+from __future__ import annotations
+import asyncio
+import os
+import subprocess
+import tempfile
+from typing import Optional
+
+try:
+    import edge_tts
+    _HAS_EDGE_TTS = True
+except ImportError:
+    _HAS_EDGE_TTS = False
+    print("  ⚠ edge-tts 미설치. TTS 생성 건너뜀. (pip install edge-tts)")
+
+from config import TTS_VOICES
+
+TTS_DIR = os.path.join(os.path.dirname(__file__), "..", "output", "tts")
+
+WORD_DURATION = 2.0  # 단어카드: 단어당 오디오 지속시간 (초)
+
+
+# ── 저수준 유틸 ───────────────────────────────────────────────────────────────
+
+async def _gen_async(text: str, voice: str, out_path: str) -> None:
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(out_path)
+
+
+def _generate(text: str, lang: str, out_path: str) -> bool:
+    """TTS 생성 공통 함수. 성공 여부 반환."""
+    if not _HAS_EDGE_TTS:
+        return False
+    os.makedirs(TTS_DIR, exist_ok=True)
+    voice = TTS_VOICES.get(lang, "en-US-JennyNeural")
+    try:
+        asyncio.run(_gen_async(text, voice, out_path))
+        size_kb = os.path.getsize(out_path) // 1024
+        print(f"  ✓ TTS 생성: {os.path.basename(out_path)}  ({size_kb} KB)")
+        return True
+    except Exception as e:
+        print(f"  ⚠ TTS 생성 실패 ({lang}): {e}")
+        return False
+
+
+def _get_audio_duration(path: str) -> float:
+    """ffprobe로 오디오 길이(초) 반환. 실패 시 0.0"""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", path],
+            capture_output=True, text=True, timeout=10
+        )
+        return float(result.stdout.strip()) if result.returncode == 0 else 0.0
+    except Exception:
+        return 0.0
+
+
+def _pad_to_duration(src: str, dst: str, duration: float) -> bool:
+    """오디오를 정확히 duration초로 패딩 (뒤에 무음 추가 후 trim)."""
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-i", src,
+            "-filter_complex",
+            f"[0:a]apad=pad_dur={duration},atrim=0:{duration}[a]",
+            "-map", "[a]", "-c:a", "libmp3lame", "-b:a", "128k",
+            dst, "-loglevel", "error"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _concat_mp3_files(files: list, out: str) -> bool:
+    """MP3 파일 목록을 순서대로 이어붙이기 (concat demuxer)."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        for fp in files:
+            f.write(f"file '{os.path.abspath(fp)}'\n")
+        list_path = f.name
+    try:
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat", "-safe", "0", "-i", list_path,
+            "-c:a", "libmp3lame", "-b:a", "128k",
+            out, "-loglevel", "error"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.returncode == 0
+    finally:
+        os.unlink(list_path)
+
+
+# ── 캐시 헬퍼 ─────────────────────────────────────────────────────────────────
+
+def _read_cache_text(mp3_path: str) -> str:
+    """mp3 옆에 저장된 .txt 사이드카 파일에서 캐시된 텍스트 읽기. 없으면 빈 문자열."""
+    txt_path = mp3_path.replace(".mp3", ".txt")
+    try:
+        with open(txt_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return ""
+
+
+def _write_cache_text(mp3_path: str, text: str) -> None:
+    """mp3 옆에 .txt 사이드카 파일로 텍스트 저장 (캐시 검증용)."""
+    txt_path = mp3_path.replace(".mp3", ".txt")
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write(text.strip())
+
+
+# ── 공개 함수 ─────────────────────────────────────────────────────────────────
+
+def generate_expression(expression: str, lang: str, date_str: str) -> Optional[str]:
+    """
+    메인 표현 TTS 생성.
+    캐시가 있어도 텍스트가 다르면 재생성 (드라이런 후 내용 변경 대비).
+    Returns: 오디오 파일 경로 (output/tts/expr_{lang}_{date_str}.mp3)
+             실패 시 None
+    """
+    out = os.path.join(TTS_DIR, f"expr_{lang}_{date_str}.mp3")
+    if os.path.exists(out):
+        if _read_cache_text(out) == expression.strip():
+            print(f"  ✓ TTS 캐시 사용: {os.path.basename(out)}")
+            return out
+        print(f"  ↻ TTS 내용 변경됨, 재생성: {os.path.basename(out)}")
+    if _generate(expression, lang, out):
+        _write_cache_text(out, expression)
+        return out
+    return None
+
+
+def generate_vocab(vocab: list, lang: str, date_str: str) -> Optional[str]:
+    """
+    단어 TTS 생성 — 단어마다 개별 TTS 후 WORD_DURATION(2초)로 패딩, 이어붙이기.
+    캐시가 있어도 텍스트가 다르면 재생성.
+    Returns: 오디오 파일 경로 (output/tts/vocab_{lang}_{date_str}.mp3)
+             실패 시 None
+    """
+    words = [item.get("word", "") for item in vocab[:3] if item.get("word")]
+    cache_text = "|".join(words)   # 캐시 키: 단어 목록
+
+    out = os.path.join(TTS_DIR, f"vocab_{lang}_{date_str}.mp3")
+    if os.path.exists(out):
+        if _read_cache_text(out) == cache_text:
+            print(f"  ✓ TTS 캐시 사용: {os.path.basename(out)}")
+            return out
+        print(f"  ↻ TTS 내용 변경됨, 재생성: {os.path.basename(out)}")
+
+    os.makedirs(TTS_DIR, exist_ok=True)
+
+    # 단어별 TTS 생성 → WORD_DURATION초 패딩 → 이어붙이기
+    padded_files = []
+    for i, word in enumerate(words):
+        raw_path    = os.path.join(TTS_DIR, f"_tmp_{lang}_{date_str}_w{i}_raw.mp3")
+        padded_path = os.path.join(TTS_DIR, f"_tmp_{lang}_{date_str}_w{i}_pad.mp3")
+
+        if not _generate(word, lang, raw_path):
+            continue   # 단어 하나 실패 → 건너뜀
+
+        tts_dur = _get_audio_duration(raw_path)
+        target  = max(WORD_DURATION, tts_dur + 0.3)   # 최소 2초, TTS가 길면 0.3초 여유
+
+        if _pad_to_duration(raw_path, padded_path, target):
+            padded_files.append(padded_path)
+
+    if not padded_files:
+        return None
+
+    # 단어가 1개면 바로 복사, 여러 개면 concat
+    if len(padded_files) == 1:
+        import shutil
+        shutil.copy2(padded_files[0], out)
+        ok = True
+    else:
+        ok = _concat_mp3_files(padded_files, out)
+
+    # 임시 파일 정리
+    for fp in padded_files:
+        try:
+            os.remove(fp)
+        except OSError:
+            pass
+    for i in range(len(words)):
+        for suffix in ("_raw.mp3",):
+            p = os.path.join(TTS_DIR, f"_tmp_{lang}_{date_str}_w{i}{suffix}")
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+    if ok and os.path.exists(out):
+        size_kb = os.path.getsize(out) // 1024
+        print(f"  ✓ TTS 단어 합성 완료: {os.path.basename(out)}  "
+              f"({len(padded_files)}단어 × {WORD_DURATION}s = {size_kb} KB)")
+        _write_cache_text(out, cache_text)
+        return out
+
+    return None
