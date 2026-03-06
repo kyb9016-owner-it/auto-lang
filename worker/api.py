@@ -15,6 +15,7 @@ worker 서버에서 실행: uvicorn worker.api:app --host 0.0.0.0 --port 8000
 
 import json
 import os
+import subprocess
 import sys
 import time
 from datetime import date, timedelta
@@ -32,7 +33,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 from config import LANGUAGES, TOPIC_CONFIG, get_today_topic
-from generator import claude_gen
+from generator import claude_gen, history as hist_module
 from renderer import card as card_renderer
 from renderer import fonts as F
 from renderer import reel as reel_renderer
@@ -41,13 +42,26 @@ from uploader import cloudinary_up
 
 # ── 앱 초기화 ─────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="LangCard Worker", version="1.0.0")
+app = FastAPI(title="LangCard Worker", version="1.1.0")
 _start_time = time.time()
 _bearer = HTTPBearer()
 
 WORKER_SECRET = os.environ.get("WORKER_SECRET", "")
 
 _TOPIC_MAP = {"greetings": 0, "cafe": 1, "travel": 2}
+
+# ── 이벤트 주제 목록 ──────────────────────────────────────────────────────────
+
+EVENT_TOPICS = [
+    {"topic_ko": "슬랭 & 유행어",      "topic_en": "Slang & Trending Phrases",   "badge": "TREND",  "emoji": "🔥", "theme_slot": "morning"},
+    {"topic_ko": "영화 & 드라마 대사", "topic_en": "Movie & Drama Quotes",        "badge": "DRAMA",  "emoji": "🎬", "theme_slot": "evening"},
+    {"topic_ko": "직장 & 회사생활",    "topic_en": "Office & Work Life",           "badge": "OFFICE", "emoji": "💼", "theme_slot": "lunch"},
+    {"topic_ko": "SNS & 인터넷 밈",    "topic_en": "Social Media & Internet Memes","badge": "MEME",   "emoji": "📱", "theme_slot": "morning"},
+    {"topic_ko": "파티 & 축하",        "topic_en": "Party & Celebration",          "badge": "PARTY",  "emoji": "🎉", "theme_slot": "evening"},
+    {"topic_ko": "연애 & 데이트",      "topic_en": "Romance & Dating",             "badge": "LOVE",   "emoji": "💕", "theme_slot": "morning"},
+    {"topic_ko": "스포츠 & 응원",      "topic_en": "Sports & Cheering",            "badge": "SPORT",  "emoji": "⚽", "theme_slot": "evening"},
+    {"topic_ko": "음식 & 먹방",        "topic_en": "Food & Mukbang",               "badge": "FOOD",   "emoji": "🍜", "theme_slot": "lunch"},
+]
 
 
 # ── 인증 ──────────────────────────────────────────────────────────────────────
@@ -61,16 +75,22 @@ def _verify(creds: HTTPAuthorizationCredentials = Security(_bearer)):
 # ── 요청 모델 ─────────────────────────────────────────────────────────────────
 
 class JobRequest(BaseModel):
-    slot: str | None = None          # morning | lunch | evening (선택)
-    topic: str | None = None         # greetings | cafe | travel (선택)
-    langs: list[str] | None = None   # ["en","zh","ja"] (기본: 전체)
+    slot: str | None = None           # morning | lunch | evening (선택)
+    topic: str | None = None          # greetings | cafe | travel (선택)
+    custom_topic: dict | None = None  # 이벤트용 커스텀 주제
+    langs: list[str] | None = None    # ["en","zh","ja"] (기본: 전체)
     dry_run: bool = False
+
+class PrefetchRequest(BaseModel):
+    force: bool = False  # 기존 파일 덮어쓰기
 
 
 # ── 헬퍼 ──────────────────────────────────────────────────────────────────────
 
-def _get_topic(slot: str | None, topic_key: str | None) -> dict:
-    """slot 또는 topic_key로 주제 결정. 둘 다 없으면 오늘 자동"""
+def _get_topic(slot: str | None, topic_key: str | None, custom_topic: dict | None = None) -> dict:
+    """custom_topic → topic_key → slot → 오늘 자동 순으로 주제 결정"""
+    if custom_topic:
+        return custom_topic
     _SLOT_TO_TOPIC = {"morning": "greetings", "lunch": "cafe", "evening": "travel"}
     key = topic_key or _SLOT_TO_TOPIC.get(slot or "", "")
     if key and key in _TOPIC_MAP:
@@ -94,16 +114,77 @@ def health():
     }
 
 
+@app.post("/restart")
+def restart_worker(creds=Security(_verify)):
+    """Worker 서비스 재시작 (systemd)"""
+    try:
+        subprocess.Popen(["systemctl", "restart", "langcard-worker"])
+        return {"status": "ok", "message": "재시작 요청됨"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/history")
+def get_history(lang: str | None = None, creds=Security(_verify)):
+    """최근 사용 표현 히스토리"""
+    if lang and lang in ("en", "zh", "ja"):
+        recent = hist_module.get_recent(lang)
+        return {"status": "ok", "lang": lang, "expressions": recent[-20:]}
+    result = {}
+    for l in LANGUAGES:
+        result[l] = hist_module.get_recent(l)[-10:]
+    return {"status": "ok", **result}
+
+
+@app.get("/event-topics")
+def get_event_topics(creds=Security(_verify)):
+    """이벤트 주제 목록"""
+    return {"status": "ok", "topics": EVENT_TOPICS}
+
+
+@app.post("/prefetch")
+def run_prefetch(req: PrefetchRequest = PrefetchRequest(), creds=Security(_verify)):
+    """내일 프리페치 강제 생성"""
+    tomorrow = (date.today() + timedelta(days=1)).strftime("%Y%m%d")
+    prefetch_path = os.path.join(_output_path(), f"data_prefetch_{tomorrow}.json")
+
+    if os.path.exists(prefetch_path) and not req.force:
+        with open(prefetch_path, "r", encoding="utf-8") as f:
+            existing = json.load(f)
+        return {"status": "already_exists", "tomorrow": tomorrow,
+                "topic": existing.get("topic"), "langs": list(existing.get("data", {}).keys())}
+
+    epoch = date(2026, 1, 1)
+    tomorrow_idx   = (date.today() + timedelta(days=1) - epoch).days % 3
+    tomorrow_topic = TOPIC_CONFIG[tomorrow_idx]
+
+    prefetch_data: dict = {}
+    for lang in LANGUAGES:
+        try:
+            prefetch_data[lang] = claude_gen.generate(lang, tomorrow_topic)
+        except Exception as e:
+            print(f"  ⚠ {lang} 프리페치 실패: {e}")
+
+    if not prefetch_data:
+        raise HTTPException(status_code=503, detail="프리페치 생성 전체 실패")
+
+    with open(prefetch_path, "w", encoding="utf-8") as f:
+        json.dump({"topic": tomorrow_topic, "data": prefetch_data}, f, ensure_ascii=False, indent=2)
+
+    return {"status": "ok", "tomorrow": tomorrow,
+            "topic": tomorrow_topic, "langs": list(prefetch_data.keys())}
+
+
 @app.post("/job")
 def run_job(req: JobRequest, creds=Security(_verify)):
     """
     Steps 1-7 실행 후 결과 URLs 반환.
     main 서버가 결과를 받아 Instagram 포스팅(Step 8)을 수행함.
     """
-    today     = date.today().strftime("%Y%m%d")
-    yesterday = (date.today() - timedelta(days=1)).strftime("%Y%m%d")
-    langs     = req.langs or list(LANGUAGES)
-    topic     = _get_topic(req.slot, req.topic)
+    today      = date.today().strftime("%Y%m%d")
+    yesterday  = (date.today() - timedelta(days=1)).strftime("%Y%m%d")
+    langs      = req.langs or list(LANGUAGES)
+    topic      = _get_topic(req.slot, req.topic, req.custom_topic)
     output_dir = _output_path()
 
     print(f"\n{'='*54}")
@@ -127,26 +208,25 @@ def run_job(req: JobRequest, creds=Security(_verify)):
             all_data[lang] = claude_gen.generate(lang, topic)
             print(f"  ✓ {lang}: {all_data[lang]['main_expression']}")
         except Exception as e:
-            # 2순위: 프리페치 파일
-            prefetched = claude_gen.load_prefetch(today, lang)
-            if prefetched:
-                all_data[lang] = prefetched
-                print(f"  ⚠ Claude 실패, 프리페치 사용: {lang}  ({e})")
-            else:
-                # 3순위: 건너뜀
-                print(f"  ✗ {lang} 건너뜀 (Claude 실패 + 프리페치 없음): {e}")
+            # 2순위: 프리페치 파일 (이벤트는 프리페치 없음)
+            if not req.custom_topic:
+                prefetched = claude_gen.load_prefetch(today, lang)
+                if prefetched:
+                    all_data[lang] = prefetched
+                    print(f"  ⚠ Claude 실패, 프리페치 사용: {lang}  ({e})")
+                    continue
+            print(f"  ✗ {lang} 건너뜀 (Claude 실패): {e}")
 
     if not all_data:
         raise HTTPException(status_code=503, detail="표현 생성 전체 실패")
 
-    # 오늘 데이터 JSON 저장 (내일 캐러셀 커버용)
-    data_json = os.path.join(output_dir, f"data_{today}.json")
-    with open(data_json, "w", encoding="utf-8") as f:
-        json.dump({"topic": topic, "data": all_data}, f, ensure_ascii=False, indent=2)
-    print(f"  ✓ 데이터 저장: {data_json}")
-
-    # 내일 프리페치 생성 (Claude 성공한 언어만, 파일 없을 때만)
-    _try_prefetch_tomorrow(langs, output_dir, all_data)
+    # 오늘 데이터 JSON 저장 (일반 슬롯만, 이벤트는 저장 안 함)
+    if not req.custom_topic:
+        data_json = os.path.join(output_dir, f"data_{today}.json")
+        with open(data_json, "w", encoding="utf-8") as f:
+            json.dump({"topic": topic, "data": all_data}, f, ensure_ascii=False, indent=2)
+        print(f"  ✓ 데이터 저장: {data_json}")
+        _try_prefetch_tomorrow(langs, output_dir, all_data)
 
     # ── Step 3: 카드 렌더링 ─────────────────────────────────────────────────
     print(f"\n[3/7] 카드 이미지 렌더링")
@@ -192,10 +272,10 @@ def run_job(req: JobRequest, creds=Security(_verify)):
         except Exception as e:
             print(f"  ✗ {lang} 숏릴스 실패 (건너뜀): {e}")
 
-    # ── Step 6: 전날 카드 수집 ─────────────────────────────────────────────
+    # ── Step 6: 전날 카드 수집 (일반 슬롯만) ────────────────────────────────
     print(f"\n[6/7] 전날 종합 캐러셀 준비 (어제: {yesterday})")
     recap_pngs: list[str] = []
-    if len(langs) == len(LANGUAGES):
+    if not req.custom_topic and len(langs) == len(LANGUAGES):
         try:
             yest_imgs, yest_vocs = reel_renderer.find_yesterday_cards(yesterday)
             if len(yest_imgs) == 3:
@@ -221,6 +301,8 @@ def run_job(req: JobRequest, creds=Security(_verify)):
                 print(f"  ⚠ 전날 카드 {len(yest_imgs)}/3개, 건너뜀")
         except Exception as e:
             print(f"  ⚠ 전날 카드 탐색 실패 (건너뜀): {e}")
+    else:
+        print(f"  → 이벤트/단일 언어 모드: 캐러셀 생략")
 
     # ── dry-run 종료 ─────────────────────────────────────────────────────────
     if req.dry_run:
@@ -284,7 +366,7 @@ def _try_prefetch_tomorrow(langs: list, output_dir: str, today_data: dict):
     tomorrow = (date.today() + timedelta(days=1)).strftime("%Y%m%d")
     prefetch_path = os.path.join(output_dir, f"data_prefetch_{tomorrow}.json")
     if os.path.exists(prefetch_path):
-        return  # 이미 있으면 생략
+        return
 
     epoch = date(2026, 1, 1)
     tomorrow_idx   = (date.today() + timedelta(days=1) - epoch).days % 3
