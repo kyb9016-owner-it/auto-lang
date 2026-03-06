@@ -1,0 +1,29 @@
+[Unit]
+Description=LangCard Worker — FastAPI 렌더링 엔진
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=langcard
+WorkingDirectory=/opt/auto-lang
+ExecStart=/opt/auto-lang/.venv/bin/uvicorn worker.api:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 1 \
+    --log-level info
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=langcard-worker
+
+# 환경 변수
+EnvironmentFile=/opt/auto-lang/.env
+
+# 보안 설정
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

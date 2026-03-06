@@ -2,7 +2,7 @@
 from __future__ import annotations
 import os
 from typing import Optional
-from datetime import date
+from datetime import date, datetime
 from PIL import Image, ImageDraw, ImageFont
 
 from config import LANG_CONFIG, SLOT_CONFIG
@@ -137,7 +137,6 @@ def _alpha_badge_emoji(img: Image.Image, x0: int, y0: int, radius: int,
     # 이모지: 국기면 PNG, 아니면 Color Emoji 폰트
     fp = F.flag_path(emoji)
     if fp:
-        # 국기 PNG — 수직 중앙정렬
         ey = badge_cy - emoji_size // 2
         flag_img = Image.open(fp).convert("RGBA").resize(
             (emoji_size, emoji_size), Image.LANCZOS)
@@ -257,6 +256,13 @@ def _main_font_fn(lang: str):
     return F.outfit  # 영어: Outfit (대소문자 지원)
 
 
+def _topic_to_slot(topic) -> str:
+    """topic dict 또는 slot str → theme_slot str 반환"""
+    if isinstance(topic, dict):
+        return topic.get("theme_slot", "morning")
+    return topic  # 이미 slot str인 경우 (하위 호환)
+
+
 # ── 메인 렌더 ────────────────────────────────────────────────────────────────
 
 # 레이아웃 구역 상수
@@ -266,14 +272,27 @@ _VOCAB_ZONE_TOP   = 720   # 단어 구역 시작 y
 _VOCAB_ZONE_BOT   = 1040  # 단어 구역 끝 y
 
 
-def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
+def render(data: dict, lang: str, topic, save: bool = True) -> str:
+    """
+    표현 카드 렌더링.
+    topic: dict (TOPIC_CONFIG 항목) 또는 str (하위 호환용 slot 이름)
+    """
     F.ensure_fonts()
 
+    slot   = _topic_to_slot(topic)
     theme  = CARD_THEMES[(lang, slot)]
     lc     = LANG_CONFIG[lang]
-    sc     = SLOT_CONFIG[slot]
     is_cjk = lang in ("zh", "ja")
     cx     = CARD_W // 2
+
+    # topic 표시 정보 추출
+    if isinstance(topic, dict):
+        badge_text = topic["badge"]
+        badge_emoji = topic["emoji"]
+    else:
+        sc = SLOT_CONFIG[slot]
+        badge_text  = sc["topic_badge"]
+        badge_emoji = sc["emoji"]
 
     # ── 배경 ─────────────────────────────────────────────────────────
     g = theme["gradient"]
@@ -286,44 +305,46 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
     ts        = theme["text_sub"]
     sub_fill  = (*ts[:3], ts[3] if len(ts)>3 else 200)
     main_fill = (*theme["text_main"], 255)
+    # 한글 음차용: sub_fill보다 살짝 밝게
+    phonetic_fill = (*ts[:3], min(ts[3]+30, 255) if len(ts)>3 else 220)
 
     # ── 상단 배지 ─────────────────────────────────────────────────────
-    # 언어 배지: 각 언어 자국어 표기 (ENG / 中文 / 日本語)
-    # 중일어는 NotoSans, 영어는 Poppins
     lang_badge_font = F.noto_kr(30) if lang in ("zh", "ja") else F.outfit(30)
     img, draw, _ = _alpha_badge_emoji(
         img, PAD, BADGE_Y, radius=26,
         bg=theme["lang_badge_bg"], emoji=lc["flag"], text=lc["name_native"],
         emoji_size=32, text_font=lang_badge_font, fg=theme["lang_badge_fg"])
 
-    # 토픽 배지: 영어 단어 (GREETINGS / CAFE / TRAVEL)
-    slot_text = sc['topic_badge']
     topic_font = F.outfit(28)
-    tmp_tb = ImageDraw.Draw(img).textbbox((0,0), slot_text, font=topic_font)
+    tmp_tb = ImageDraw.Draw(img).textbbox((0,0), badge_text, font=topic_font)
     slot_w = BADGE_PAD_X + 32 + 8 + (tmp_tb[2]-tmp_tb[0]) + BADGE_PAD_X
     sx = CARD_W - PAD - slot_w
     img, draw, _ = _alpha_badge_emoji(
         img, sx, BADGE_Y, radius=26,
-        bg=theme["topic_badge_bg"], emoji=sc["emoji"], text=slot_text,
+        bg=theme["topic_badge_bg"], emoji=badge_emoji, text=badge_text,
         emoji_size=32, text_font=topic_font, fg=theme["topic_badge_fg"])
 
-    # ── 메인 폰트 결정 ────────────────────────────────────────────────
-    font_fn   = _main_font_fn(lang)
-    main_font, _ = _fit_font(draw, data["main_expression"],
-                              font_fn, USABLE_W, start=96, stop=44)
-
     # ── 폰트 선언 ────────────────────────────────────────────────────
-    label_font  = F.noto_kr(28)
-    pron_font   = F.noto_kr(36)
-    ko_font     = F.noto_kr(52)
-    bonus_font  = font_fn(40)
-    bko_font    = F.noto_kr(34)
+    font_fn       = _main_font_fn(lang)
+    main_font, _  = _fit_font(draw, data["main_expression"],
+                               font_fn, USABLE_W, start=88, stop=40)
+    label_font    = F.noto_kr(28)
+    phonetic_font = F.noto_kr(26)
+    pron_font     = F.noto_kr(34)
+    ko_font       = F.noto_kr(50)
+    bonus_font    = font_fn(38)
+    bko_font      = F.noto_kr(32)
+
+    phonetic_text = data.get("korean_phonetic", "")
 
     def _expr_height() -> int:
         h  = _th(draw, "오늘의 표현", label_font) + 12
         main_lines = _wrap(draw, data["main_expression"], main_font, USABLE_W, is_cjk)
         for ln in main_lines: h += _th(draw, ln, main_font) + 12
         h += 8
+        # 한글 음차
+        if phonetic_text:
+            h += _th(draw, phonetic_text, phonetic_font) + 10
         if lc["has_pronunciation"] and data.get("pronunciation"):
             h += _th(draw, data["pronunciation"], pron_font) + 10
         bb = draw.textbbox((0,0), data["korean_translation"], font=ko_font)
@@ -332,7 +353,7 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
         bonus_lines = _wrap(draw, data.get("bonus_expression",""), bonus_font, USABLE_W, is_cjk)
         for ln in bonus_lines: h += _th(draw, ln, bonus_font) + 8
         if lc["has_pronunciation"] and data.get("bonus_pronunciation"):
-            h += _th(draw, data["bonus_pronunciation"], F.noto_kr(30)) + 6
+            h += _th(draw, data["bonus_pronunciation"], F.noto_kr(28)) + 6
         bko = data.get("bonus_korean","")
         if bko: h += _th(draw, bko, bko_font)
         return h
@@ -344,7 +365,7 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
     avail_h   = avail_bot - avail_top
     y = avail_top + max((avail_h - expr_h) // 2, 0)
 
-    # ── "오늘의 표현" 레이블 (중앙, 선 없음) ──────────────────────────
+    # ── "오늘의 표현" 레이블 ──────────────────────────────────────────
     lbl_bb = draw.textbbox((0, 0), "오늘의 표현", font=label_font)
     draw.text(((CARD_W - (lbl_bb[2]-lbl_bb[0])) // 2, y - lbl_bb[1]),
               "오늘의 표현", font=label_font, fill=sub_fill)
@@ -357,6 +378,16 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
         draw.text(((CARD_W - lw) // 2, y), line, font=main_font, fill=main_fill)
         y += _th(draw, line, main_font) + 12
     y += 8
+
+    # ── 한글 음차 발음 (중앙) ─────────────────────────────────────────
+    if phonetic_text:
+        pt_display = f"🔊 {phonetic_text}"
+        # 🔊 이모지 없이 텍스트만 (이모지 렌더 복잡)
+        pt_display = phonetic_text
+        pw = _tw(draw, pt_display, phonetic_font)
+        draw.text(((CARD_W - pw) // 2, y), pt_display,
+                  font=phonetic_font, fill=phonetic_fill)
+        y += _th(draw, pt_display, phonetic_font) + 10
 
     # ── 발음 (중/일, 중앙) ───────────────────────────────────────────
     if lc["has_pronunciation"] and data.get("pronunciation"):
@@ -377,7 +408,6 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
                                              fill=theme["kr_badge_bg"])
     img = Image.alpha_composite(img, layer)
     draw = ImageDraw.Draw(img)
-    # bb[1] 오프셋 보정으로 pill 안에 수직 중앙정렬
     draw.text((cx - ktw//2, y + kpy - bb[1]), ko_text, font=ko_font, fill=main_fill)
     y = ky1 + 14
 
@@ -394,7 +424,7 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
         y += _th(draw, line, bonus_font) + 8
 
     if lc["has_pronunciation"] and data.get("bonus_pronunciation"):
-        bp_font = F.noto_kr(30)
+        bp_font = F.noto_kr(28)
         bp = data["bonus_pronunciation"]
         bpw = _tw(draw, bp, bp_font)
         draw.text(((CARD_W-bpw)//2, y), bp, font=bp_font, fill=sub_fill)
@@ -415,7 +445,7 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
     # ── 저장 ─────────────────────────────────────────────────────────
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     today = date.today().strftime("%Y%m%d")
-    out_path = os.path.join(OUTPUT_DIR, f"{slot}_{lang}_{today}.png")
+    out_path = os.path.join(OUTPUT_DIR, f"expr_{lang}_{today}.png")
     if save:
         img.convert("RGB").save(out_path, "PNG", optimize=True)
         print(f"  ✓ 카드 저장: {out_path}")
@@ -424,15 +454,27 @@ def render(data: dict, lang: str, slot: str, save: bool = True) -> str:
 
 # ── 단어 전용 카드 렌더러 ─────────────────────────────────────────────────────
 
-def render_vocab(data: dict, lang: str, slot: str, save: bool = True) -> str:
-    """단어 전용 카드 렌더링."""
+def render_vocab(data: dict, lang: str, topic, save: bool = True) -> str:
+    """
+    단어 전용 카드 렌더링.
+    topic: dict (TOPIC_CONFIG 항목) 또는 str (하위 호환용 slot 이름)
+    """
     F.ensure_fonts()
 
+    slot   = _topic_to_slot(topic)
     theme  = CARD_THEMES[(lang, slot)]
     lc     = LANG_CONFIG[lang]
-    sc     = SLOT_CONFIG[slot]
     is_cjk = lang in ("zh", "ja")
     cx     = CARD_W // 2
+
+    # topic 표시 정보 추출
+    if isinstance(topic, dict):
+        badge_text  = topic["badge"]
+        badge_emoji = topic["emoji"]
+    else:
+        sc = SLOT_CONFIG[slot]
+        badge_text  = sc["topic_badge"]
+        badge_emoji = sc["emoji"]
 
     # ── 배경 ─────────────────────────────────────────────────────────
     g = theme["gradient"]
@@ -445,6 +487,7 @@ def render_vocab(data: dict, lang: str, slot: str, save: bool = True) -> str:
     ts        = theme["text_sub"]
     sub_fill  = (*ts[:3], ts[3] if len(ts)>3 else 200)
     main_fill = (*theme["text_main"], 255)
+    phonetic_fill = (*ts[:3], min(ts[3]+30, 255) if len(ts)>3 else 220)
 
     # ── 상단 배지 ─────────────────────────────────────────────────────
     lang_badge_font = F.noto_kr(30) if lang in ("zh", "ja") else F.outfit(30)
@@ -453,36 +496,39 @@ def render_vocab(data: dict, lang: str, slot: str, save: bool = True) -> str:
         bg=theme["lang_badge_bg"], emoji=lc["flag"], text=lc["name_native"],
         emoji_size=32, text_font=lang_badge_font, fg=theme["lang_badge_fg"])
 
-    slot_text  = sc["topic_badge"]
     topic_font = F.outfit(28)
-    tmp_tb     = ImageDraw.Draw(img).textbbox((0,0), slot_text, font=topic_font)
+    tmp_tb     = ImageDraw.Draw(img).textbbox((0,0), badge_text, font=topic_font)
     slot_w     = BADGE_PAD_X + 32 + 8 + (tmp_tb[2]-tmp_tb[0]) + BADGE_PAD_X
     img, draw, _ = _alpha_badge_emoji(
         img, CARD_W - PAD - slot_w, BADGE_Y, radius=26,
-        bg=theme["topic_badge_bg"], emoji=sc["emoji"], text=slot_text,
+        bg=theme["topic_badge_bg"], emoji=badge_emoji, text=badge_text,
         emoji_size=32, text_font=topic_font, fg=theme["topic_badge_fg"])
 
-    font_fn     = _main_font_fn(lang)
-    vocab       = data.get("vocab", [])
-    word_font   = font_fn(52)          # 표현 카드보다 크게
-    mean_font   = F.noto_kr(38)
-    pron_font   = F.noto_kr(30)
-    lbl_font    = F.noto_kr(28)
-    item_gap    = 52                   # 단어 항목 간 간격
+    font_fn      = _main_font_fn(lang)
+    vocab        = data.get("vocab", [])
+    word_font    = font_fn(50)
+    mean_font    = F.noto_kr(36)
+    pron_font    = F.noto_kr(28)
+    phonetic_font = F.noto_kr(24)
+    lbl_font     = F.noto_kr(28)
+    item_gap     = 44
 
     # ── 높이 측정 → 세로 중앙 ────────────────────────────────────────
     def _vocab_block_h() -> int:
-        h = _th(draw, "오늘의 단어", lbl_font) + 28   # 레이블 + 아래 여백
+        h = _th(draw, "오늘의 단어", lbl_font) + 28
         for item in vocab[:3]:
             word = item.get("word","")
             mean = item.get("meaning","")
             pron = item.get("pronunciation") or ""
+            kp   = item.get("korean_phonetic", "")
             row_h = max(_th(draw, word, word_font), _th(draw, mean, mean_font))
             h += row_h
             if pron and lc["has_pronunciation"]:
                 h += 6 + _th(draw, pron, pron_font)
+            if kp:
+                h += 4 + _th(draw, kp, phonetic_font)
             h += item_gap
-        return h - item_gap   # 마지막 gap 제거
+        return h - item_gap
 
     block_h   = _vocab_block_h()
     avail_top = BADGE_Y + BADGE_H
@@ -500,6 +546,7 @@ def render_vocab(data: dict, lang: str, slot: str, save: bool = True) -> str:
         word = item.get("word","")
         mean = item.get("meaning","")
         pron = item.get("pronunciation") or ""
+        kp   = item.get("korean_phonetic", "")
 
         # 단어 + 뜻 한 줄
         ww   = _tw(draw, word, word_font)
@@ -509,7 +556,6 @@ def render_vocab(data: dict, lang: str, slot: str, save: bool = True) -> str:
         row_w = ww + sw + mw
         tx   = (CARD_W - row_w) // 2
 
-        # 베이스라인 맞춤: word(대) + mean(소) 수직 중앙
         wh = _th(draw, word, word_font)
         mh = _th(draw, mean, mean_font)
         row_h = max(wh, mh)
@@ -526,6 +572,15 @@ def render_vocab(data: dict, lang: str, slot: str, save: bool = True) -> str:
             draw.text(((CARD_W-pw)//2, vy - pb[1]), pron, font=pron_font, fill=sub_fill)
             vy += _th(draw, pron, pron_font)
 
+        # 한글 음차 (발음 아래)
+        if kp:
+            vy += 4
+            kpb  = draw.textbbox((0,0), kp, font=phonetic_font)
+            kpw  = kpb[2] - kpb[0]
+            draw.text(((CARD_W-kpw)//2, vy - kpb[1]), kp,
+                      font=phonetic_font, fill=phonetic_fill)
+            vy += _th(draw, kp, phonetic_font)
+
         if i < len(vocab[:3]) - 1:
             vy += item_gap
 
@@ -539,8 +594,172 @@ def render_vocab(data: dict, lang: str, slot: str, save: bool = True) -> str:
     # ── 저장 ─────────────────────────────────────────────────────────
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     today    = date.today().strftime("%Y%m%d")
-    out_path = os.path.join(OUTPUT_DIR, f"{slot}_{lang}_vocab_{today}.png")
+    out_path = os.path.join(OUTPUT_DIR, f"vocab_{lang}_{today}.png")
     if save:
         img.convert("RGB").save(out_path, "PNG", optimize=True)
         print(f"  ✓ 단어 카드 저장: {out_path}")
+    return out_path
+
+
+# ── 종합 캐러셀 커버 카드 ──────────────────────────────────────────────────────
+
+def render_recap_cover(all_data: dict, topic: dict, date_str: str) -> str:
+    """
+    종합 캐러셀 첫 슬라이드 커버 카드 생성.
+    날짜 기반 제목 + 3개국어 표현 미리보기 + 스와이프 CTA.
+    date_str: "YYYYMMDD" (어제 날짜)
+    Returns: output/recap_cover_{date_str}.png
+    """
+    F.ensure_fonts()
+
+    # ── 날짜 포맷 변환: "20260305" → "3월 5일의 표현" ─────────────────
+    dt      = datetime.strptime(date_str, "%Y%m%d")
+    date_ko = f"{dt.month}월 {dt.day}일의 표현"
+
+    cx = CARD_W // 2
+
+    # ── 배경: 짙은 네이비 그라디언트 ──────────────────────────────────
+    bg  = _gradient(CARD_W, CARD_H, (12, 15, 40), (28, 35, 75), (18, 22, 55))
+    img = bg.convert("RGBA")
+
+    # 도트 오버레이 (밝은 텍스트 기준)
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    d_ov  = ImageDraw.Draw(layer)
+    for x in range(0, CARD_W, 20):
+        for y in range(0, CARD_H, 20):
+            d_ov.ellipse([x-1, y-1, x+1, y+1], fill=(255, 255, 255, 12))
+    img = Image.alpha_composite(img, layer)
+
+    draw = ImageDraw.Draw(img)
+
+    # ── 색상 정의 ──────────────────────────────────────────────────────
+    WHITE        = (255, 255, 255, 255)
+    WHITE_DIM    = (255, 255, 255, 160)
+    WHITE_FAINT  = (255, 255, 255, 100)
+    GOLD         = (255, 213, 79, 255)    # 날짜 강조색
+    DIVIDER      = (255, 255, 255, 40)
+
+    # ── 폰트 ──────────────────────────────────────────────────────────
+    date_font    = F.noto_kr(62)   # "3월 5일의 표현"
+    label_font   = F.noto_kr(28)   # 섹션 레이블
+    expr_font_en = F.outfit(40)
+    expr_font_zh = F.noto_sc(38)
+    expr_font_ja = F.noto_jp(38)
+    phon_font    = F.noto_kr(26)   # 한글 음차
+    cta_font     = F.noto_kr(34)   # 하단 CTA
+
+    _EXPR_FONTS = {"en": expr_font_en, "zh": expr_font_zh, "ja": expr_font_ja}
+
+    # ── 상단 주제 배지 (우상단) ───────────────────────────────────────
+    badge_text  = topic.get("badge", "")
+    badge_emoji = topic.get("emoji", "📖")
+    topic_font  = F.outfit(28)
+    tmp_tb      = draw.textbbox((0, 0), badge_text, font=topic_font)
+    slot_w      = BADGE_PAD_X + 32 + 8 + (tmp_tb[2]-tmp_tb[0]) + BADGE_PAD_X
+    img, draw, _ = _alpha_badge_emoji(
+        img, CARD_W - PAD - slot_w, BADGE_Y, radius=26,
+        bg=(255, 213, 79, 200), emoji=badge_emoji, text=badge_text,
+        emoji_size=32, text_font=topic_font, fg=(26, 26, 26))
+
+    # ── 날짜 제목 (수직 1/4 지점) ─────────────────────────────────────
+    y = 180
+    dt_bb = draw.textbbox((0, 0), date_ko, font=date_font)
+    dt_w  = dt_bb[2] - dt_bb[0]
+    draw.text(((CARD_W - dt_w) // 2, y - dt_bb[1]), date_ko,
+              font=date_font, fill=GOLD)
+    y += (dt_bb[3] - dt_bb[1]) + 32
+
+    # 구분선
+    draw.line([(PAD, y), (CARD_W - PAD, y)], fill=DIVIDER, width=1)
+    y += 36
+
+    # ── "어제의 표현" 레이블 ──────────────────────────────────────────
+    _section_label(draw, y, "어제의 표현 미리보기", label_font,
+                   text_fill=(*WHITE_DIM[:3], WHITE_DIM[3]),
+                   line_fill=DIVIDER)
+    y += _th(draw, "어제의 표현 미리보기", label_font) + 32
+
+    # ── 언어별 표현 미리보기 ──────────────────────────────────────────
+    for lang in ("en", "zh", "ja"):
+        if lang not in all_data:
+            continue
+        d   = all_data[lang]
+        lc  = LANG_CONFIG[lang]
+        ef  = _EXPR_FONTS.get(lang, expr_font_en)
+
+        # 국기 배지 (좌측 인라인)
+        fp = F.flag_path(lc["flag"])
+        flag_size = 36
+        fx = PAD + 8
+        fy = y + 4
+
+        if fp:
+            flag_img = Image.open(fp).convert("RGBA").resize(
+                (flag_size, flag_size), Image.LANCZOS)
+            img.paste(flag_img, (fx, fy), flag_img)
+
+        # 표현 텍스트 (국기 오른쪽)
+        expr_x     = PAD + 8 + flag_size + 14
+        expr_max_w = CARD_W - expr_x - PAD
+        expr_text  = d.get("main_expression", "")
+        is_cjk     = lang in ("zh", "ja")
+
+        # 한 줄에 맞게 잘라내기 (너무 길면 ...)
+        while _tw(draw, expr_text, ef) > expr_max_w and len(expr_text) > 6:
+            expr_text = expr_text[:-1]
+        if expr_text != d.get("main_expression", ""):
+            expr_text = expr_text.rstrip(".,!？！…") + "…"
+
+        eb = draw.textbbox((0, 0), expr_text, ef)
+        draw.text((expr_x, y - eb[1]), expr_text, font=ef, fill=WHITE)
+        y += (eb[3] - eb[1]) + 6
+
+        # 한글 음차
+        phonetic = d.get("korean_phonetic", "")
+        if phonetic:
+            # 너무 길면 자르기
+            ph_disp = phonetic
+            while _tw(draw, ph_disp, phon_font) > expr_max_w and len(ph_disp) > 4:
+                ph_disp = ph_disp[:-1]
+            if ph_disp != phonetic:
+                ph_disp = ph_disp.rstrip() + "…"
+            ph_x = expr_x
+            pb   = draw.textbbox((0, 0), ph_disp, phon_font)
+            draw.text((ph_x, y - pb[1]), ph_disp,
+                      font=phon_font, fill=WHITE_FAINT)
+            y += (pb[3] - pb[1]) + 4
+
+        y += 28   # 언어 간 간격
+
+    # ── 구분선 ────────────────────────────────────────────────────────
+    draw.line([(PAD, y), (CARD_W - PAD, y)], fill=DIVIDER, width=1)
+    y += 36
+
+    # ── CTA: 스와이프 ─────────────────────────────────────────────────
+    cta_text = "스와이프해서 복습하기"
+    cta_w    = _tw(draw, cta_text, cta_font)
+    cb       = draw.textbbox((0, 0), cta_text, cta_font)
+    draw.text(((CARD_W - cta_w) // 2, y - cb[1]),
+              cta_text, font=cta_font, fill=GOLD)
+    y += (cb[3] - cb[1]) + 14
+
+    # 화살표 (NotoSansKR 지원 문자)
+    arrow = "- - -"
+    af    = F.noto_kr(28)
+    aw    = _tw(draw, arrow, af)
+    ab    = draw.textbbox((0, 0), arrow, af)
+    draw.text(((CARD_W - aw) // 2, y - ab[1]), arrow, font=af, fill=(*GOLD[:3], 160))
+
+    # ── 워터마크 ──────────────────────────────────────────────────────
+    wm_font = F.noto_kr(22)
+    wm      = "@langcard.studio"
+    wmw     = _tw(draw, wm, wm_font)
+    draw.text(((CARD_W - wmw) // 2, CARD_H - 38), wm,
+              font=wm_font, fill=(255, 255, 255, 60))
+
+    # ── 저장 ──────────────────────────────────────────────────────────
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    out_path = os.path.join(OUTPUT_DIR, f"recap_cover_{date_str}.png")
+    img.convert("RGB").save(out_path, "PNG", optimize=True)
+    print(f"  ✓ 커버 카드 저장: {out_path}")
     return out_path

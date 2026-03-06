@@ -1,0 +1,25 @@
+[Unit]
+Description=LangCard Telegram Bot — 원격 제어 봇
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=langcard
+WorkingDirectory=/opt/auto-lang
+ExecStart=/opt/auto-lang/.venv/bin/python3 bot/telegram_bot.py
+Restart=on-failure
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=langcard-bot
+
+# 환경 변수
+EnvironmentFile=/opt/auto-lang/.env
+
+# 보안 설정
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

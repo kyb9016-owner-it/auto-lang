@@ -1,0 +1,18 @@
+# LangCard Studio — 자동 포스팅 스케줄 (UTC 기준, KST = UTC+9)
+# main 서버의 langcard 유저 crontab: crontab -u langcard deploy/crontab.txt
+#
+# KST 08:00 = UTC 23:00 (전날)
+# KST 12:00 = UTC 03:00
+# KST 20:00 = UTC 11:00
+
+SHELL=/bin/bash
+PATH=/opt/auto-lang/.venv/bin:/usr/local/bin:/usr/bin:/bin
+
+# ── 아침 슬롯 (KST 08:00 → UTC 23:00) ────────────────────────────────────────
+0 23 * * * cd /opt/auto-lang && python3 dispatch.py --slot morning >> /var/log/langcard/cron.log 2>&1
+
+# ── 점심 슬롯 (KST 12:00 → UTC 03:00) ────────────────────────────────────────
+0 3 * * * cd /opt/auto-lang && python3 dispatch.py --slot lunch >> /var/log/langcard/cron.log 2>&1
+
+# ── 저녁 슬롯 (KST 20:00 → UTC 11:00) ────────────────────────────────────────
+0 11 * * * cd /opt/auto-lang && python3 dispatch.py --slot evening >> /var/log/langcard/cron.log 2>&1
