@@ -530,14 +530,24 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
     best_slot = result["best_slot"]
     best_hour = result["best_hour"]
     top_hours = result["top_hours"]
+    errors    = result.get("errors", [])
 
     slot_emoji = {"morning": "🌅", "lunch": "☕", "evening": "✈️", "other": "🌙"}
     slot_label = {"morning": "morning", "lunch": "lunch  ", "evening": "evening", "other": "other  "}
 
     lines = [f"📊 최근 {total}개 포스팅 분석\n"]
 
+    # API 오류가 있으면 원인 표시
+    if errors:
+        err_preview = errors[0].split(":")[-1].strip()[:120]
+        lines.append(f"⚠️ 인사이트 API 오류 ({len(errors)}건)\n{err_preview}\n")
+
     # 슬롯별 평균 성과
-    if by_slot:
+    has_data = any(
+        s.get("impressions", 0) > 0 for s in by_slot.values()
+    ) if by_slot else False
+
+    if by_slot and has_data:
         lines.append("🏆 슬롯별 평균 성과")
         for slot in ("morning", "lunch", "evening", "other"):
             if slot not in by_slot:
@@ -548,20 +558,31 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"{slot_emoji[slot]} {slot_label[slot]} ({s['count']}개): "
                 f"조회 {s['impressions']:,} | 도달 {s['reach']:,} | 인게이지 {s['engagement']}{mark}"
             )
+    elif by_slot and not has_data:
+        # 조회 0이지만 슬롯 분류는 됨 (좋아요/댓글은 있을 수 있음)
+        lines.append("🏆 슬롯별 포스팅 수 (인사이트 없음)")
+        for slot in ("morning", "lunch", "evening", "other"):
+            if slot not in by_slot:
+                continue
+            s = by_slot[slot]
+            lines.append(
+                f"{slot_emoji[slot]} {slot_label[slot]}: {s['count']}개 "
+                f"(좋아요 기반 인게이지: {s['engagement']})"
+            )
+        lines.append("\n💡 인사이트 접근 권한 필요:")
+        lines.append("  Instagram → 설정 → 계정 → 프로페셔널 계정으로 전환")
     else:
-        lines.append("(인사이트 데이터 없음 — 비즈니스 계정 확인 필요)")
+        lines.append("(포스팅 없음)")
 
     # 시간대별 TOP 3
-    if top_hours:
+    if top_hours and has_data:
         lines.append("\n⏰ 시간대별 TOP 3 (KST)")
         for rank, (hour, avg_imp) in enumerate(top_hours, 1):
             lines.append(f"  {rank}위 {hour:02d}시: 평균 {avg_imp:,} 조회")
 
     # 추천
-    if best_slot and best_hour is not None:
+    if best_slot and best_hour is not None and has_data:
         lines.append(f"\n💡 추천: /schedule {best_slot} {best_hour:02d}:00")
-    elif not by_slot:
-        lines.append("\n💡 비즈니스 계정 전환 후 이용 가능합니다.")
 
     await update.message.reply_text("\n".join(lines))
 

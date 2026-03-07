@@ -360,26 +360,32 @@ def get_recent_media(limit: int = 30) -> list[dict]:
 
 def get_media_insights(media_id: str, media_type: str = "") -> dict:
     """
-    특정 미디어 인사이트 (impressions, reach, video_views, saved).
-    에러 시 빈 dict 반환 (권한 없거나 오래된 포스팅).
-    VIDEO(릴스)만 video_views 지원.
+    특정 미디어 인사이트 조회.
+    - VIDEO(릴스): plays, reach, saved  ← video_views는 v21 deprecated
+    - IMAGE/CAROUSEL: impressions, reach, saved
+    에러 시 {"_error": str} 반환 (권한 없거나 오래된 포스팅).
     """
     try:
         if media_type == "VIDEO":
-            metrics = "impressions,reach,video_views,saved"
+            # v21.0+: video_views → plays
+            metrics = "plays,reach,saved"
         else:
             metrics = "impressions,reach,saved"
         data = _api("GET", f"{media_id}/insights", params={"metric": metrics})
         result = {}
         for item in data.get("data", []):
             name = item["name"]
+            # v21: 일부 메트릭은 "value" 직접, 나머지는 "values"[0]["value"]
             val = item.get("value")
             if val is None and item.get("values"):
                 val = item["values"][0].get("value", 0)
             result[name] = val or 0
+        # plays → impressions 로 통합 (집계 키 통일)
+        if "plays" in result and "impressions" not in result:
+            result["impressions"] = result["plays"]
         return result
-    except Exception:
-        return {}
+    except Exception as e:
+        return {"_error": str(e)}
 
 
 def get_analytics(limit: int = 30) -> dict:
@@ -407,7 +413,8 @@ def get_analytics(limit: int = 30) -> dict:
 
     media_list = get_recent_media(limit)
 
-    posts = []
+    posts  = []
+    errors: list[str] = []
     slot_stats: dict[str, list] = {"morning": [], "lunch": [], "evening": [], "other": []}
     hour_stats: dict[int, list] = {}
 
@@ -418,8 +425,8 @@ def get_analytics(limit: int = 30) -> dict:
 
         # KST 변환
         try:
-            dt_utc  = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            dt_kst  = dt_utc.astimezone(KST)
+            dt_utc   = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            dt_kst   = dt_utc.astimezone(KST)
             kst_hour = dt_kst.hour
             ts_label = dt_kst.strftime("%Y-%m-%d %H:%M KST")
         except Exception:
@@ -428,10 +435,14 @@ def get_analytics(limit: int = 30) -> dict:
             ts_label = ts
 
         # 인사이트 조회
-        insights    = get_media_insights(media_id, media_type)
+        insights = get_media_insights(media_id, media_type)
+        err_msg  = insights.pop("_error", None)
+        if err_msg and len(errors) < 3:
+            errors.append(f"{media_id}: {err_msg}")
+
         impressions = insights.get("impressions", 0)
         reach       = insights.get("reach", 0)
-        video_views = insights.get("video_views", 0)
+        video_views = insights.get("plays", insights.get("video_views", 0))
         saved       = insights.get("saved", 0)
         likes       = m.get("like_count", 0) or 0
         comments    = m.get("comments_count", 0) or 0
@@ -492,6 +503,7 @@ def get_analytics(limit: int = 30) -> dict:
         "best_slot": best_slot,
         "best_hour": best_hour,
         "top_hours": top_hours,
+        "errors":    errors,   # API 오류 메시지 (최대 3개)
     }
 
 
