@@ -537,9 +537,9 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = [f"📊 최근 {total}개 포스팅 분석\n"]
 
-    # API 오류가 있으면 원인 표시
+    # API 오류가 있으면 원인 표시 (전체 메시지)
     if errors:
-        err_preview = errors[0].split(":")[-1].strip()[:120]
+        err_preview = errors[0][:200]
         lines.append(f"⚠️ 인사이트 API 오류 ({len(errors)}건)\n{err_preview}\n")
 
     # 슬롯별 평균 성과

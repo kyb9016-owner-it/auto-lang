@@ -367,20 +367,24 @@ def get_media_insights(media_id: str, media_type: str = "") -> dict:
     """
     try:
         if media_type == "VIDEO":
-            # v21.0+: video_views → plays
+            # v21.0: Reels → plays (video_views deprecated)
             metrics = "plays,reach,saved"
         else:
             metrics = "impressions,reach,saved"
-        data = _api("GET", f"{media_id}/insights", params={"metric": metrics})
+        # period=lifetime 필수 — 없으면 API가 빈 데이터 or 오류 반환
+        data = _api("GET", f"{media_id}/insights", params={
+            "metric": metrics,
+            "period": "lifetime",
+        })
         result = {}
         for item in data.get("data", []):
             name = item["name"]
-            # v21: 일부 메트릭은 "value" 직접, 나머지는 "values"[0]["value"]
+            # v21: "value" 직접 또는 "values"[0]["value"]
             val = item.get("value")
             if val is None and item.get("values"):
                 val = item["values"][0].get("value", 0)
             result[name] = val or 0
-        # plays → impressions 로 통합 (집계 키 통일)
+        # plays → impressions 키 통일
         if "plays" in result and "impressions" not in result:
             result["impressions"] = result["plays"]
         return result
