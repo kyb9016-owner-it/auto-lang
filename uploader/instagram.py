@@ -350,28 +350,33 @@ def post_reel(video_url: str, slot: str, all_data: dict[str, dict]) -> str:
 # ── 분석 함수 ─────────────────────────────────────────────────────────────────
 
 def get_recent_media(limit: int = 30) -> list[dict]:
-    """최근 미디어 목록 (id, timestamp, media_type, like_count, comments_count)"""
+    """최근 미디어 목록 (id, timestamp, media_type, media_product_type, like_count, comments_count)"""
     data = _api("GET", f"{IG_ID}/media", params={
-        "fields": "id,timestamp,media_type,like_count,comments_count",
+        "fields": "id,timestamp,media_type,media_product_type,like_count,comments_count",
         "limit": limit,
     })
     return data.get("data", [])
 
 
-def get_media_insights(media_id: str, media_type: str = "") -> dict:
+def get_media_insights(media_id: str, media_type: str = "",
+                       media_product_type: str = "") -> dict:
     """
     특정 미디어 인사이트 조회.
-    - VIDEO(릴스): plays, reach, saved  ← video_views는 v21 deprecated
-    - IMAGE/CAROUSEL: impressions, reach, saved
+
+    media_product_type 기준:
+      - REELS → plays, reach, saved   (plays = 재생 수, impressions 없음)
+      - 그 외  → impressions, reach, saved
+
     에러 시 {"_error": str} 반환 (권한 없거나 오래된 포스팅).
     """
     try:
-        if media_type == "VIDEO":
-            # v21.0: Reels → plays (video_views deprecated)
+        is_reel = media_product_type == "REELS"
+        if is_reel:
             metrics = "plays,reach,saved"
         else:
             metrics = "impressions,reach,saved"
-        # period=lifetime 필수 — 없으면 API가 빈 데이터 or 오류 반환
+
+        # period=lifetime 필수
         data = _api("GET", f"{media_id}/insights", params={
             "metric": metrics,
             "period": "lifetime",
@@ -379,12 +384,12 @@ def get_media_insights(media_id: str, media_type: str = "") -> dict:
         result = {}
         for item in data.get("data", []):
             name = item["name"]
-            # v21: "value" 직접 또는 "values"[0]["value"]
             val = item.get("value")
             if val is None and item.get("values"):
                 val = item["values"][0].get("value", 0)
             result[name] = val or 0
-        # plays → impressions 키 통일
+
+        # plays → impressions 키 통일 (집계 편의)
         if "plays" in result and "impressions" not in result:
             result["impressions"] = result["plays"]
         return result
@@ -423,9 +428,10 @@ def get_analytics(limit: int = 30) -> dict:
     hour_stats: dict[int, list] = {}
 
     for m in media_list:
-        media_id   = m["id"]
-        ts         = m.get("timestamp", "")
-        media_type = m.get("media_type", "")
+        media_id           = m["id"]
+        ts                 = m.get("timestamp", "")
+        media_type         = m.get("media_type", "")
+        media_product_type = m.get("media_product_type", "")  # REELS / POST / AD
 
         # KST 변환
         try:
@@ -438,8 +444,8 @@ def get_analytics(limit: int = 30) -> dict:
             kst_hour = -1
             ts_label = ts
 
-        # 인사이트 조회
-        insights = get_media_insights(media_id, media_type)
+        # 인사이트 조회 (media_product_type으로 Reels 여부 판단)
+        insights = get_media_insights(media_id, media_type, media_product_type)
         err_msg  = insights.pop("_error", None)
         if err_msg and len(errors) < 3:
             errors.append(f"{media_id}: {err_msg}")
