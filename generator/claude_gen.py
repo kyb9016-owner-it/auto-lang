@@ -74,25 +74,47 @@ Return ONLY this JSON:
 }}"""
 
 
-def generate(lang: str, topic: dict) -> dict:
-    """표현 생성 후 히스토리 저장. dict 반환"""
-    prompt = _build_prompt(lang, topic)
-
+def _call_api(prompt: str) -> dict:
+    """Claude API 호출 후 JSON 파싱"""
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=900,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}],
     )
-
     text = message.content[0].text.strip()
-    # JSON 블록 추출 (혹시 ```json 감싸진 경우 대비)
     if text.startswith("```"):
         text = text.split("```")[1]
         if text.startswith("json"):
             text = text[4:]
         text = text.strip()
+    return json.loads(text)
 
-    data = json.loads(text)
+
+def generate(lang: str, topic: dict, max_retries: int = 3) -> dict:
+    """
+    표현 생성 후 히스토리 저장. dict 반환.
+    중복 감지 시 최대 max_retries 회 재시도.
+    """
+    recent = history.get_recent(lang)
+    recent_set = set(recent)
+    data = {}
+
+    for attempt in range(1, max_retries + 1):
+        prompt = _build_prompt(lang, topic)
+        data = _call_api(prompt)
+        expr = data["main_expression"]
+
+        if expr not in recent_set:
+            history.add(lang, expr)
+            if attempt > 1:
+                print(f"  ↻ {lang} 재시도 {attempt}회 만에 새 표현: {expr}")
+            return data
+
+        # 중복 감지 — 재시도
+        print(f"  ⚠ {lang} 중복 감지 (시도 {attempt}/{max_retries}): {expr!r}")
+
+    # max_retries 초과해도 중복이면 마지막 결과 그냥 사용
+    print(f"  ✗ {lang} 재시도 초과, 중복 허용: {data['main_expression']!r}")
     history.add(lang, data["main_expression"])
     return data
