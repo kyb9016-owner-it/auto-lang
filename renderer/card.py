@@ -897,13 +897,13 @@ def render_outro_frame(date_str: str) -> str:
     WHITE = (255, 255, 255, 255)
     GOLD  = (255, 213, 79, 255)
 
-    # ── 저장 유도 CTA (상단) ─────────────────────────────────────────────
-    save_font = F.noto_kr(52)
-    save_text = "📌 저장하고 오늘 꼭 써보세요!"
+    # ── 좋아요 + 저장 CTA (상단) ────────────────────────────────────────
+    save_font = F.noto_kr(64)
+    save_text = "❤️ 좋아요   📌 저장"
     sb = draw.textbbox((0, 0), save_text, font=save_font)
     sw = sb[2] - sb[0]
     draw.text(((CARD_W - sw) // 2, CARD_H // 3 - sb[1]),
-              save_text, font=save_font, fill=(*GOLD[:3], 230))
+              save_text, font=save_font, fill=WHITE)
 
     # ── 팔로우 CTA (중앙) ────────────────────────────────────────────────
     follow_font  = F.noto_kr(58)

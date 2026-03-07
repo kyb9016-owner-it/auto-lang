@@ -103,7 +103,7 @@ def _build_short_reel_caption(lang: str, data: dict, topic: dict) -> str:
 
     lines += [
         "이 표현 써본 적 있나요? 댓글로 알려주세요 💬",
-        "💾 저장해두고 오늘 꼭 한 번 써보세요!",
+        "유용했다면 ❤️ 좋아요 + 💾 저장해두고 오늘 꼭 써보세요!",
         "",
         LANG_HASHTAGS.get(lang, HASHTAGS),
     ]
