@@ -361,40 +361,44 @@ def get_recent_media(limit: int = 30) -> list[dict]:
 def get_media_insights(media_id: str, media_type: str = "",
                        media_product_type: str = "") -> dict:
     """
-    특정 미디어 인사이트 조회.
-
-    media_product_type 기준:
-      - REELS → plays, reach, saved   (plays = 재생 수, impressions 없음)
-      - 그 외  → impressions, reach, saved
-
-    에러 시 {"_error": str} 반환 (권한 없거나 오래된 포스팅).
+    특정 미디어 인사이트 조회. 폴백 포함:
+      REELS → plays 우선, 실패 시 impressions
+      그 외  → impressions 우선, 실패 시 plays
+    에러 시 {"_error": str} 반환.
     """
-    try:
-        is_reel = media_product_type == "REELS"
-        if is_reel:
-            metrics = "plays,reach,saved"
-        else:
-            metrics = "impressions,reach,saved"
+    is_reel = media_product_type == "REELS"
+    # REELS: plays 우선 / 그 외: impressions 우선, 실패 시 교차 재시도
+    metric_order = (
+        ["plays,reach,saved", "impressions,reach,saved"] if is_reel
+        else ["impressions,reach,saved", "plays,reach,saved"]
+    )
 
-        # period=lifetime 필수
-        data = _api("GET", f"{media_id}/insights", params={
-            "metric": metrics,
-            "period": "lifetime",
-        })
-        result = {}
-        for item in data.get("data", []):
+    def _parse(raw: list) -> dict:
+        out = {}
+        for item in raw:
             name = item["name"]
             val = item.get("value")
             if val is None and item.get("values"):
                 val = item["values"][0].get("value", 0)
-            result[name] = val or 0
+            out[name] = val or 0
+        # plays → impressions 키 통일
+        if "plays" in out and "impressions" not in out:
+            out["impressions"] = out["plays"]
+        return out
 
-        # plays → impressions 키 통일 (집계 편의)
-        if "plays" in result and "impressions" not in result:
-            result["impressions"] = result["plays"]
-        return result
-    except Exception as e:
-        return {"_error": str(e)}
+    last_err = "알 수 없는 오류"
+    for metrics in metric_order:
+        try:
+            data = _api("GET", f"{media_id}/insights", params={
+                "metric": metrics,
+                "period": "lifetime",
+            })
+            return _parse(data.get("data", []))
+        except Exception as e:
+            last_err = str(e)
+            continue  # 다음 메트릭 세트 시도
+
+    return {"_error": last_err}
 
 
 def get_analytics(limit: int = 30) -> dict:
