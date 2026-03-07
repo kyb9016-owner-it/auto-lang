@@ -259,13 +259,29 @@ def run_job(req: JobRequest, creds=Security(_verify)):
 
     # ── Step 5: 숏릴스 MP4 ─────────────────────────────────────────────────
     print(f"\n[5/7] 숏릴스 생성")
+
+    # 훅·아웃트로 프레임 생성 (언어 공통 아웃트로, 언어별 훅)
+    outro_png: str | None = None
+    try:
+        outro_png = card_renderer.render_outro_frame(today)
+    except Exception as e:
+        print(f"  ⚠ 아웃트로 프레임 생성 실패 (건너뜀): {e}")
+
     short_reel_paths: dict[str, str] = {}
     for lang in image_paths:
         try:
+            hook_png: str | None = None
+            try:
+                hook_png = card_renderer.render_hook_frame(lang, today)
+            except Exception as e:
+                print(f"  ⚠ {lang} 훅 프레임 생성 실패 (건너뜀): {e}")
+
             path = reel_renderer.render_short(
                 image_paths[lang], vocab_paths[lang],
                 expr_tts.get(lang), vocab_tts.get(lang),
-                lang, today
+                lang, today,
+                hook_path=hook_png,
+                outro_path=outro_png,
             )
             short_reel_paths[lang] = path
             print(f"  ✓ {lang}: {os.path.basename(path)}")

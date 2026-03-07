@@ -99,32 +99,54 @@ def _concat_segments(segment_files: list[str], out_path: str) -> None:
 
 def render_short(expr_path: str, vocab_path: str,
                  expr_tts: Optional[str], vocab_tts: Optional[str],
-                 lang: str, date_str: str) -> str:
+                 lang: str, date_str: str,
+                 hook_path: Optional[str] = None,
+                 outro_path: Optional[str] = None) -> str:
     """
-    ~7초 숏릴스: 표현카드(TTS) → 단어카드(TTS)
+    숏릴스: [훅 2s?] → 표현카드(TTS) → 단어카드(TTS) → [아웃트로 2.5s?]
+    hook_path / outro_path 가 있으면 앞뒤에 추가.
     Returns: output/short_{lang}_{date_str}.mp4
     """
     os.makedirs(FRAMES_DIR, exist_ok=True)
 
     # 오디오 길이 기반 슬라이드 지속시간 결정
-    expr_dur  = max(3.0, _get_audio_duration(expr_tts)  + 0.5) if expr_tts  else 3.5
-    vocab_dur = max(4.0, _get_audio_duration(vocab_tts) + 0.5) if vocab_tts else 4.5
+    # 표현카드: TTS 후 1.5초 읽기 여유 / 단어카드: TTS 후 1.0초 여유
+    expr_dur  = max(4.0, _get_audio_duration(expr_tts)  + 1.5) if expr_tts  else 4.5
+    vocab_dur = max(5.0, _get_audio_duration(vocab_tts) + 1.0) if vocab_tts else 5.5
 
-    # PNG → 9:16 패딩
+    segments: list[str] = []
+
+    # ── 훅 프레임 ────────────────────────────────────────────────────────
+    if hook_path and os.path.exists(hook_path):
+        padded_hook = os.path.join(FRAMES_DIR, f"short_{lang}_{date_str}_hook.png")
+        _pad_to_9_16(hook_path, padded_hook)
+        seg_hook = os.path.join(FRAMES_DIR, f"short_{lang}_{date_str}_seg_hook.mp4")
+        _make_segment(padded_hook, None, 2.0, seg_hook)   # 무음 2초
+        segments.append(seg_hook)
+
+    # ── 표현 + 단어 카드 ─────────────────────────────────────────────────
     padded_expr  = os.path.join(FRAMES_DIR, f"short_{lang}_{date_str}_expr.png")
     padded_vocab = os.path.join(FRAMES_DIR, f"short_{lang}_{date_str}_vocab.png")
     _pad_to_9_16(expr_path, padded_expr)
     _pad_to_9_16(vocab_path, padded_vocab)
 
-    # 세그먼트 MP4 생성
-    seg_expr  = os.path.join(FRAMES_DIR, f"short_{lang}_{date_str}_seg0.mp4")
-    seg_vocab = os.path.join(FRAMES_DIR, f"short_{lang}_{date_str}_seg1.mp4")
+    seg_expr  = os.path.join(FRAMES_DIR, f"short_{lang}_{date_str}_seg_expr.mp4")
+    seg_vocab = os.path.join(FRAMES_DIR, f"short_{lang}_{date_str}_seg_vocab.mp4")
     _make_segment(padded_expr,  expr_tts,  expr_dur,  seg_expr)
     _make_segment(padded_vocab, vocab_tts, vocab_dur, seg_vocab)
+    segments += [seg_expr, seg_vocab]
 
-    # 최종 합치기
+    # ── 아웃트로 프레임 ──────────────────────────────────────────────────
+    if outro_path and os.path.exists(outro_path):
+        padded_outro = os.path.join(FRAMES_DIR, f"short_{lang}_{date_str}_outro.png")
+        _pad_to_9_16(outro_path, padded_outro)
+        seg_outro = os.path.join(FRAMES_DIR, f"short_{lang}_{date_str}_seg_outro.mp4")
+        _make_segment(padded_outro, None, 2.5, seg_outro)  # 무음 2.5초
+        segments.append(seg_outro)
+
+    # ── 최종 합치기 ──────────────────────────────────────────────────────
     out_path = os.path.join(OUTPUT_DIR, f"short_{lang}_{date_str}.mp4")
-    _concat_segments([seg_expr, seg_vocab], out_path)
+    _concat_segments(segments, out_path)
 
     size_kb = os.path.getsize(out_path) // 1024
     print(f"  ✓ 숏릴스 저장: {out_path}  ({size_kb} KB)")
@@ -179,14 +201,14 @@ def render(image_paths: dict, vocab_paths: dict,
         frames.append({
             "png": image_paths[lang],
             "tts": (tts_expr_paths or {}).get(lang),
-            "dur_min": duration,
+            "dur_min": duration + 1.0,  # 표현카드: 읽기 여유 +1초
         })
     for lang in langs:
         if lang in vocab_paths:
             frames.append({
                 "png": vocab_paths[lang],
                 "tts": (tts_vocab_paths or {}).get(lang),
-                "dur_min": duration + 1.0,  # 단어 카드는 1초 더
+                "dur_min": duration + 2.0,  # 단어 카드: 읽기 여유 +2초
             })
 
     # 세그먼트 생성

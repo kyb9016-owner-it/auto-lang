@@ -72,36 +72,31 @@ TTS_VOICES = {
 }
 
 # ── 언어별 해시태그 (개별 포스팅용) ─────────────────────────────────────────
+# 전략: 초경쟁 광범위 태그 제거 → 중간 규모 niche 태그 집중 (10개 내외)
 LANG_HASHTAGS = {
     "en": (
-        "#영어 #영어공부 #영어회화 #영어표현 #오늘의영어 "
-        "#english #englishlearning #learnenglish #영어스피킹 "
-        "#외국어공부 #공부스타그램 #languagelearning "
-        "#오늘의표현 #오늘의단어 #langcard #랭카드스튜디오"
+        "#영어회화 #영어공부 #오늘의영어 #영어표현 "
+        "#dailyenglish #englishphrase #learnenglish "
+        "#외국어공부 #공부스타그램 #langcard"
     ),
     "zh": (
-        "#중국어 #중국어공부 #중국어회화 #오늘의중국어 #중국어표현 "
-        "#chinese #chineselearning #learnchinese #普通话 "
-        "#외국어공부 #공부스타그램 #languagelearning "
-        "#오늘의표현 #오늘의단어 #langcard #랭카드스튜디오"
+        "#중국어회화 #중국어공부 #오늘의중국어 #중국어표현 "
+        "#dailychinese #chinesephrase #learnchinese "
+        "#외국어공부 #공부스타그램 #langcard"
     ),
     "ja": (
-        "#일본어 #일본어공부 #일본어회화 #오늘의일본어 #일본어표현 "
-        "#japanese #japaneselearning #learnjapanese #日本語 "
-        "#외국어공부 #공부스타그램 #languagelearning "
-        "#오늘의표현 #오늘의단어 #langcard #랭카드스튜디오"
+        "#일본어회화 #일본어공부 #오늘의일본어 #일본어표현 "
+        "#dailyjapanese #japanesephrase #learnjapanese "
+        "#외국어공부 #공부스타그램 #langcard"
     ),
 }
 
 # 종합 릴스용 해시태그 (3개국어 모두)
 HASHTAGS = (
-    "#영어 #영어공부 #영어회화 #영어표현 #오늘의영어 "
-    "#중국어 #중국어공부 #중국어회화 #오늘의중국어 "
-    "#일본어 #일본어공부 #일본어회화 #오늘의일본어 "
-    "#3개국어 #외국어공부 #언어공부 #공부스타그램 "
-    "#languagelearning #polyglot #multilingual "
-    "#english #chinese #japanese "
-    "#오늘의표현 #오늘의단어 #langcard #랭카드스튜디오"
+    "#영어회화 #영어공부 #중국어회화 #중국어공부 "
+    "#일본어회화 #일본어공부 #3개국어 "
+    "#외국어공부 #언어공부 #공부스타그램 "
+    "#languagelearning #polyglot #langcard #랭카드스튜디오"
 )
 
 # ── 기타 설정 ────────────────────────────────────────────────────────────────
