@@ -9,3 +9,11 @@ fonts/*.ttf
 fonts/*.otf
 venv/
 .venv/
+
+# 런타임 데이터 — 서버별로 독립 유지 (git pull로 덮어쓰기 방지)
+history.json
+output/*.json
+output/*.mp3
+output/*.mp4
+output/tts/
+output/reel_frames/
