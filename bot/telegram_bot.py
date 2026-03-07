@@ -578,9 +578,70 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for rank, (hour, avg_imp) in enumerate(top_hours, 1):
             lines.append(f"  {rank}위 {hour:02d}시: 평균 {avg_imp:,} 조회")
 
-    # 추천
+    # ── 섹션 A: 콘텐츠 타입별 성과 ──────────────────────────────────────────
+    by_type = result.get("by_type", {})
+    if len(by_type) >= 2 and has_data:
+        lines.append("\n📱 콘텐츠 타입별 성과")
+        type_emoji = {"REELS": "🎬", "POST": "🖼", "AD": "📣"}
+        type_sorted = sorted(by_type.items(), key=lambda x: -x[1]["impressions"])
+        for t, v in type_sorted:
+            lines.append(
+                f"  {type_emoji.get(t, '📄')} {t} ({v['count']}개): "
+                f"조회 {v['impressions']:,} | 인게이지 {v['engagement']:,}"
+            )
+        best_t  = type_sorted[0][0]
+        worst_t = type_sorted[-1][0]
+        ratio   = round(type_sorted[0][1]["impressions"] / max(type_sorted[-1][1]["impressions"], 1), 1)
+        if ratio >= 1.3:
+            lines.append(f"  → {best_t}이 {worst_t}보다 조회 {ratio}배 높음")
+
+    # ── 섹션 B: 성과 트렌드 ──────────────────────────────────────────────────
+    trend = result.get("trend", {})
+    if trend and has_data and trend.get("old_avg", 0) > 0 and analyzed >= 4:
+        pct       = trend["pct"]
+        arrow     = "↑" if pct > 0 else ("↓" if pct < 0 else "→")
+        direction = "상승" if pct > 0 else ("하락" if pct < 0 else "유지")
+        lines.append("\n📈 성과 트렌드")
+        lines.append(f"  이전 {analyzed // 2}개 평균: {trend['old_avg']:,} 조회")
+        lines.append(f"  최근 {analyzed // 2}개 평균: {trend['new_avg']:,} 조회")
+        lines.append(f"  → 성과 {pct:+}% {direction} 중 {arrow}")
+
+    # ── 섹션 C: 종합 제안 ────────────────────────────────────────────────────
+    suggestions = []
+
+    # 1) 최적 스케줄 추천
     if best_slot and best_hour is not None and has_data:
-        lines.append(f"\n💡 추천: /schedule {best_slot} {best_hour:02d}:00")
+        suggestions.append(f"📅 최적 시간: /schedule {best_slot} {best_hour:02d}:00")
+
+    # 2) 콘텐츠 타입 추천
+    if len(by_type) >= 2 and has_data:
+        ts = sorted(by_type.items(), key=lambda x: -x[1]["impressions"])
+        ratio = round(ts[0][1]["impressions"] / max(ts[-1][1]["impressions"], 1), 1)
+        if ratio >= 1.3:
+            suggestions.append(f"🎬 {ts[0][0]} 비율 늘리기 권장 (조회 {ratio}배 높음)")
+
+    # 3) 인게이지먼트율 진단
+    total_imp = sum(s.get("impressions", 0) * s.get("count", 0) for s in by_slot.values())
+    total_eng = sum(s.get("engagement",  0) * s.get("count", 0) for s in by_slot.values())
+    eng_rate  = round(total_eng / total_imp * 100, 1) if total_imp else 0
+    if eng_rate > 0:
+        if eng_rate < 5:
+            suggestions.append(f"💬 인게이지먼트율 {eng_rate}% — 저장 유도 CTA 문구 추가 권장")
+        elif eng_rate >= 10:
+            suggestions.append(f"🌟 인게이지먼트율 {eng_rate}% 우수 — 현재 방식 유지")
+
+    # 4) 트렌드 기반 경고/격려
+    if trend and has_data and analyzed >= 4:
+        pct = trend.get("pct", 0)
+        if pct <= -20:
+            suggestions.append("⚠️ 성과 하락세 — 시간대·콘텐츠 타입 변경 고려")
+        elif pct >= 20:
+            suggestions.append("📈 성과 상승세 — 현재 전략 유지")
+
+    if suggestions:
+        lines.append("\n💡 제안")
+        for s in suggestions:
+            lines.append(f"  • {s}")
 
     await update.message.reply_text("\n".join(lines))
 

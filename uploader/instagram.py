@@ -470,18 +470,19 @@ def get_analytics(limit: int = 30) -> dict:
         slot = _classify_slot(kst_hour)
 
         post = {
-            "id":          media_id,
-            "timestamp":   ts_label,
-            "kst_hour":    kst_hour,
-            "slot":        slot,
-            "media_type":  media_type,
-            "impressions": impressions,
-            "reach":       reach,
-            "video_views": video_views,
-            "saved":       saved,
-            "likes":       likes,
-            "comments":    comments,
-            "engagement":  engagement,
+            "id":                media_id,
+            "timestamp":         ts_label,
+            "kst_hour":          kst_hour,
+            "slot":              slot,
+            "media_type":        media_type,
+            "media_product_type": media_product_type,
+            "impressions":       impressions,
+            "reach":             reach,
+            "video_views":       video_views,
+            "saved":             saved,
+            "likes":             likes,
+            "comments":          comments,
+            "engagement":        engagement,
         }
         posts.append(post)
         slot_stats[slot].append(post)
@@ -515,6 +516,32 @@ def get_analytics(limit: int = 30) -> dict:
     top_hours = sorted(hour_avgs.items(), key=lambda x: x[1], reverse=True)[:3]
     best_hour = top_hours[0][0] if top_hours else None
 
+    # 콘텐츠 타입별 집계 (media_product_type 기준)
+    by_type: dict = {}
+    for p in posts:
+        t = p.get("media_product_type") or "POST"
+        if t not in by_type:
+            by_type[t] = {"count": 0, "impressions": 0, "engagement": 0}
+        by_type[t]["count"]       += 1
+        by_type[t]["impressions"] += p.get("impressions", 0)
+        by_type[t]["engagement"]  += p.get("engagement", 0)
+    for t in by_type:
+        c = by_type[t]["count"]
+        by_type[t]["impressions"] = round(by_type[t]["impressions"] / c)
+        by_type[t]["engagement"]  = round(by_type[t]["engagement"] / c)
+
+    # 성과 트렌드 (최근 절반 vs 이전 절반)
+    mid = len(posts) // 2
+
+    def _avg_imp(lst: list) -> int:
+        vals = [p.get("impressions", 0) for p in lst]
+        return round(sum(vals) / len(vals)) if vals else 0
+
+    old_avg   = _avg_imp(posts[:mid])
+    new_avg   = _avg_imp(posts[mid:])
+    trend_pct = round((new_avg - old_avg) / old_avg * 100) if old_avg else 0
+    trend = {"old_avg": old_avg, "new_avg": new_avg, "pct": trend_pct}
+
     return {
         "total":     len(posts),
         "posts":     posts,
@@ -523,6 +550,8 @@ def get_analytics(limit: int = 30) -> dict:
         "best_hour": best_hour,
         "top_hours": top_hours,
         "errors":    errors,   # API 오류 메시지 (최대 3개)
+        "by_type":   by_type,  # 콘텐츠 타입별 집계
+        "trend":     trend,    # 성과 트렌드 (최근 절반 vs 이전 절반)
     }
 
 
