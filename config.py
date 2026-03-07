@@ -65,10 +65,26 @@ LANG_CONFIG = {
 }
 
 # ── TTS 음성 설정 (edge-tts) ─────────────────────────────────────────────────
+# 슬롯별 음성 구분: morning=여성, lunch=남성(차분), evening=남성(캐주얼)
 TTS_VOICES = {
-    "en": "en-US-JennyNeural",
-    "zh": "zh-CN-XiaoxiaoNeural",
-    "ja": "ja-JP-NanamiNeural",
+    "en": {
+        "morning": "en-US-JennyNeural",   # 여성
+        "lunch":   "en-US-GuyNeural",     # 남성 (차분)
+        "evening": "en-US-DavisNeural",   # 남성 (캐주얼)
+        "default": "en-US-JennyNeural",   # fallback
+    },
+    "zh": {
+        "morning": "zh-CN-XiaoxiaoNeural",  # 여성
+        "lunch":   "zh-CN-YunyangNeural",   # 남성
+        "evening": "zh-CN-YunyangNeural",   # 남성
+        "default": "zh-CN-XiaoxiaoNeural",  # fallback
+    },
+    "ja": {
+        "morning": "ja-JP-NanamiNeural",    # 여성
+        "lunch":   "ja-JP-KeitaNeural",     # 남성
+        "evening": "ja-JP-KeitaNeural",     # 남성
+        "default": "ja-JP-NanamiNeural",    # fallback
+    },
 }
 
 # ── 언어별 해시태그 (개별 포스팅용) ─────────────────────────────────────────

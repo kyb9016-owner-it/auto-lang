@@ -248,9 +248,11 @@ def run_job(req: JobRequest, creds=Security(_verify)):
     for lang in image_paths:
         try:
             expr_tts[lang]  = tts_gen.generate_expression(
-                all_data[lang]["main_expression"], lang, today)
+                all_data[lang]["main_expression"], lang, today,
+                slot=req.slot or "default")
             vocab_tts[lang] = tts_gen.generate_vocab(
-                all_data[lang].get("vocab", []), lang, today)
+                all_data[lang].get("vocab", []), lang, today,
+                slot=req.slot or "default")
             print(f"  ✓ {lang}: TTS 생성 완료")
         except Exception as e:
             print(f"  ⚠ {lang} TTS 실패 (건너뜀): {e}")

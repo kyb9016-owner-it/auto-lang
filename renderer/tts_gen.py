@@ -27,12 +27,16 @@ async def _gen_async(text: str, voice: str, out_path: str) -> None:
     await communicate.save(out_path)
 
 
-def _generate(text: str, lang: str, out_path: str) -> bool:
+def _generate(text: str, lang: str, out_path: str, slot: str = "default") -> bool:
     """TTS 생성 공통 함수. 성공 여부 반환."""
     if not _HAS_EDGE_TTS:
         return False
     os.makedirs(TTS_DIR, exist_ok=True)
-    voice = TTS_VOICES.get(lang, "en-US-JennyNeural")
+    voices = TTS_VOICES.get(lang, {})
+    if isinstance(voices, dict):
+        voice = voices.get(slot) or voices.get("default", "en-US-JennyNeural")
+    else:
+        voice = voices  # str이면 그대로 (하위호환)
     try:
         asyncio.run(_gen_async(text, voice, out_path))
         size_kb = os.path.getsize(out_path) // 1024
@@ -112,36 +116,38 @@ def _write_cache_text(mp3_path: str, text: str) -> None:
 
 # ── 공개 함수 ─────────────────────────────────────────────────────────────────
 
-def generate_expression(expression: str, lang: str, date_str: str) -> Optional[str]:
+def generate_expression(expression: str, lang: str, date_str: str,
+                        slot: str = "default") -> Optional[str]:
     """
     메인 표현 TTS 생성.
     캐시가 있어도 텍스트가 다르면 재생성 (드라이런 후 내용 변경 대비).
-    Returns: 오디오 파일 경로 (output/tts/expr_{lang}_{date_str}.mp3)
+    Returns: 오디오 파일 경로 (output/tts/expr_{lang}_{slot}_{date_str}.mp3)
              실패 시 None
     """
-    out = os.path.join(TTS_DIR, f"expr_{lang}_{date_str}.mp3")
+    out = os.path.join(TTS_DIR, f"expr_{lang}_{slot}_{date_str}.mp3")
     if os.path.exists(out):
         if _read_cache_text(out) == expression.strip():
             print(f"  ✓ TTS 캐시 사용: {os.path.basename(out)}")
             return out
         print(f"  ↻ TTS 내용 변경됨, 재생성: {os.path.basename(out)}")
-    if _generate(expression, lang, out):
+    if _generate(expression, lang, out, slot=slot):
         _write_cache_text(out, expression)
         return out
     return None
 
 
-def generate_vocab(vocab: list, lang: str, date_str: str) -> Optional[str]:
+def generate_vocab(vocab: list, lang: str, date_str: str,
+                   slot: str = "default") -> Optional[str]:
     """
     단어 TTS 생성 — 단어마다 개별 TTS 후 WORD_DURATION(2초)로 패딩, 이어붙이기.
     캐시가 있어도 텍스트가 다르면 재생성.
-    Returns: 오디오 파일 경로 (output/tts/vocab_{lang}_{date_str}.mp3)
+    Returns: 오디오 파일 경로 (output/tts/vocab_{lang}_{slot}_{date_str}.mp3)
              실패 시 None
     """
     words = [item.get("word", "") for item in vocab[:3] if item.get("word")]
     cache_text = "|".join(words)   # 캐시 키: 단어 목록
 
-    out = os.path.join(TTS_DIR, f"vocab_{lang}_{date_str}.mp3")
+    out = os.path.join(TTS_DIR, f"vocab_{lang}_{slot}_{date_str}.mp3")
     if os.path.exists(out):
         if _read_cache_text(out) == cache_text:
             print(f"  ✓ TTS 캐시 사용: {os.path.basename(out)}")
@@ -156,7 +162,7 @@ def generate_vocab(vocab: list, lang: str, date_str: str) -> Optional[str]:
         raw_path    = os.path.join(TTS_DIR, f"_tmp_{lang}_{date_str}_w{i}_raw.mp3")
         padded_path = os.path.join(TTS_DIR, f"_tmp_{lang}_{date_str}_w{i}_pad.mp3")
 
-        if not _generate(word, lang, raw_path):
+        if not _generate(word, lang, raw_path, slot=slot):
             continue   # 단어 하나 실패 → 건너뜀
 
         tts_dur = _get_audio_duration(raw_path)
