@@ -25,6 +25,7 @@ load_dotenv(Path(__file__).parent / ".env", override=True)
 import requests
 
 from uploader import instagram
+import notify
 
 
 WORKER_URL    = os.environ.get("WORKER_URL", "http://localhost:8000")
@@ -38,6 +39,8 @@ _SLOT_EMOJI = {
     "event":   "🎉",
 }
 
+_LANG_FLAG = {"en": "🇺🇸", "zh": "🇨🇳", "ja": "🇯🇵"}
+
 
 def dispatch(slot: str | None, dry_run: bool = False,
              lang_filter: str | None = None,
@@ -47,10 +50,19 @@ def dispatch(slot: str | None, dry_run: bool = False,
     Returns: worker 응답 dict
     Raises: RuntimeError on failure
     """
-    label = slot or "event"
-    emoji = _SLOT_EMOJI.get(label, "📌")
+    label  = slot or "event"
+    emoji  = _SLOT_EMOJI.get(label, "📌")
+    t_start = time.time()
+
     print(f"\n{emoji} {label} 슬롯 시작 (dry_run={dry_run}, lang={lang_filter or 'all'})")
     print(f"  → Worker: {WORKER_URL}/job")
+
+    # ── [🔔 1] 시작 알림 ─────────────────────────────────────────────────────
+    dry_tag = " <i>(dry-run)</i>" if dry_run else ""
+    notify.send(
+        f"{emoji} <b>{label} 슬롯 포스팅 시작</b>{dry_tag}\n"
+        f"언어: {lang_filter or 'en · zh · ja'}"
+    )
 
     # ── worker 호출 ──────────────────────────────────────────────────────────
     payload: dict = {"dry_run": dry_run}
@@ -71,42 +83,84 @@ def dispatch(slot: str | None, dry_run: bool = False,
         resp.raise_for_status()
         data = resp.json()
     except requests.Timeout:
-        raise RuntimeError(f"Worker 응답 시간 초과 ({TIMEOUT}초)")
+        msg = f"Worker 응답 시간 초과 ({TIMEOUT}초)"
+        notify.send(f"❌ <b>{label} 슬롯 실패</b>\n{msg}")
+        raise RuntimeError(msg)
     except requests.RequestException as e:
-        raise RuntimeError(f"Worker 연결 실패: {e}")
+        msg = f"Worker 연결 실패: {e}"
+        notify.send(f"❌ <b>{label} 슬롯 실패</b>\n{msg}")
+        raise RuntimeError(msg)
 
     if data.get("status") not in ("ok", "dry_run"):
-        raise RuntimeError(f"Worker 오류: {data}")
+        msg = f"Worker 오류: {data}"
+        notify.send(f"❌ <b>{label} 슬롯 실패</b>\n{msg}")
+        raise RuntimeError(msg)
 
-    print(f"  ✓ Worker 완료: 릴스 {len(data.get('short_reel_urls', {}))}개, "
-          f"캐러셀 {len(data.get('recap_card_urls', []))}장")
+    topic        = data.get("topic", {})
+    all_data     = data.get("all_data", {})
+    short_reel_urls = data.get("short_reel_urls", {})
+    recap_card_urls = data.get("recap_card_urls", [])
+
+    print(f"  ✓ Worker 완료: 릴스 {len(short_reel_urls)}개, "
+          f"캐러셀 {len(recap_card_urls)}장")
+
+    # ── [🔔 2] Worker 완료 + 표현 미리보기 ──────────────────────────────────
+    topic_text = ""
+    if topic:
+        t_emoji = topic.get("emoji", "")
+        t_ko    = topic.get("topic_ko", "")
+        topic_text = f"\n주제: {t_emoji} {t_ko}"
+
+    expr_lines = []
+    for lang in ("en", "zh", "ja"):
+        if lang in all_data:
+            flag = _LANG_FLAG.get(lang, "")
+            expr = all_data[lang].get("main_expression", "")
+            if expr:
+                expr_lines.append(f"{flag} {expr}")
+
+    expr_preview = "\n".join(expr_lines)
+    notify.send(
+        f"📦 <b>콘텐츠 생성 완료</b>{topic_text}\n\n"
+        + (expr_preview if expr_preview else "(표현 없음)")
+    )
 
     if dry_run:
+        elapsed = int(time.time() - t_start)
+        notify.send(f"✅ <b>{label} dry-run 완료</b> ({elapsed}초)")
         print(f"\n[dry-run] Instagram 포스팅 생략. 완료.")
         return data
 
     # ── Step 8: Instagram 포스팅 ─────────────────────────────────────────────
     print(f"\n[8] Instagram 포스팅")
-    topic    = data["topic"]
-    all_data = data["all_data"]
-    short_reel_urls  = data.get("short_reel_urls", {})
-    recap_card_urls  = data.get("recap_card_urls", [])
+
+    reel_count     = 0
+    carousel_count = 0
 
     # 8-a) 종합 캐러셀 (전날 복습) — 이벤트/단일 언어는 생략
     if recap_card_urls and not custom_topic and not lang_filter:
         try:
             instagram.post_recap_carousel(recap_card_urls, topic, all_data)
+            carousel_count += 1
+            # ── [🔔 3] 캐러셀 완료 ──────────────────────────────────────────
+            notify.send(f"📸 <b>종합 캐러셀 업로드 완료</b> ✅\n(어제 복습 카드 {len(recap_card_urls)}장)")
             time.sleep(8)
         except Exception as e:
+            notify.send(f"⚠️ <b>종합 캐러셀 실패</b> (건너뜀)\n<code>{e}</code>")
             print(f"  ⚠ 종합 캐러셀 포스팅 실패 (건너뜀): {e}")
 
     # 8-b) 언어별 숏릴스 (en → zh → ja)
     from story_dispatcher import enqueue_story
     langs_order = [l for l in ("en", "zh", "ja") if l in short_reel_urls]
     for i, lang in enumerate(langs_order):
+        flag = _LANG_FLAG.get(lang, lang.upper())
         try:
             instagram.post_short_reel(
                 short_reel_urls[lang], lang, all_data[lang], topic)
+            reel_count += 1
+            # ── [🔔 4] 언어별 릴스 완료 ─────────────────────────────────────
+            notify.send(f"🎬 <b>{flag} {lang.upper()} 릴스 업로드 완료</b> ✅")
+
             # 릴스 포스팅 성공 → 1시간 후 스토리 공유 예약
             try:
                 enqueue_story(short_reel_urls[lang], lang, delay_hours=1.0)
@@ -115,9 +169,20 @@ def dispatch(slot: str | None, dry_run: bool = False,
             if i < len(langs_order) - 1:
                 time.sleep(8)
         except Exception as e:
+            notify.send(f"❌ <b>{flag} {lang.upper()} 릴스 포스팅 실패</b>\n<code>{e}</code>")
             print(f"  ✗ {lang} 릴스 포스팅 실패: {e}")
 
-    total = len(langs_order) + (1 if recap_card_urls and not custom_topic and not lang_filter else 0)
+    # ── [🔔 5] 전체 완료 요약 ────────────────────────────────────────────────
+    elapsed = int(time.time() - t_start)
+    mins, secs = divmod(elapsed, 60)
+    total = reel_count + carousel_count
+    notify.send(
+        f"✅ <b>{label} 포스팅 완료!</b>\n"
+        f"릴스 {reel_count}개"
+        + (f" + 캐러셀 {carousel_count}개" if carousel_count else "")
+        + f"\n소요시간: {mins}분 {secs}초"
+    )
+
     print(f"\n✅ {label} 슬롯 완료! 총 {total}개 포스팅")
     return data
 

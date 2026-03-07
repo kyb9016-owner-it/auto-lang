@@ -78,6 +78,7 @@ def run() -> None:
     """큐를 읽어 예약 시각이 된 스토리를 게시."""
     from dotenv import load_dotenv
     load_dotenv(os.path.join(ROOT, ".env"))
+    import notify
 
     queue = _load_queue()
     if not queue:
@@ -105,6 +106,8 @@ def run() -> None:
             changed = True
             continue
 
+        _LANG_FLAG = {"en": "🇺🇸", "zh": "🇨🇳", "ja": "🇯🇵"}
+        flag = _LANG_FLAG.get(lang, lang.upper())
         print(f"\n[스토리 공유] {lang} 릴스 → 스토리")
         try:
             from uploader.instagram import post_video_story
@@ -114,6 +117,7 @@ def run() -> None:
             item["story_media_id"]  = media_id
             changed = True
             print(f"  ✓ [{lang}] 스토리 공유 완료: {media_id}")
+            notify.send(f"📖 <b>{flag} {lang.upper()} 스토리 공유 완료</b> ✅\n(릴스 포스팅 1시간 후 자동)")
         except Exception as e:
             # 실패 시 재시도 횟수 기록 (3회 초과 시 포기)
             item["retry_count"] = item.get("retry_count", 0) + 1
@@ -122,6 +126,7 @@ def run() -> None:
                 item["error"]    = str(e)
                 changed = True
                 print(f"  ✗ [{lang}] 스토리 3회 실패, 포기: {e}")
+                notify.send(f"⚠️ <b>{flag} {lang.upper()} 스토리 3회 실패, 포기</b>\n<code>{e}</code>")
             else:
                 print(f"  ⚠ [{lang}] 스토리 실패 ({item['retry_count']}/3), 다음에 재시도: {e}")
 
