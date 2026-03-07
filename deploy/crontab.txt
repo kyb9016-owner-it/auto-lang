@@ -16,3 +16,6 @@ PATH=/opt/auto-lang/.venv/bin:/usr/local/bin:/usr/bin:/bin
 
 # ── 저녁 슬롯 (KST 20:00 → UTC 11:00) ────────────────────────────────────────
 0 11 * * * cd /opt/auto-lang && python3 dispatch.py --slot evening >> /var/log/langcard/cron.log 2>&1
+
+# ── 스토리 큐 처리 (5분마다 — 릴스 포스팅 1시간 후 자동 공유) ─────────────────
+*/5 * * * * cd /opt/auto-lang && python3 story_dispatcher.py >> /var/log/langcard/story.log 2>&1

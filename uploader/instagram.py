@@ -317,6 +317,21 @@ def post_story(image_url: str) -> str:
     return media_id
 
 
+def post_video_story(video_url: str) -> str:
+    """릴스 영상을 스토리로 포스팅 (video_url → STORIES) → media_id"""
+    print("  → 스토리(영상) 컨테이너 생성 중...")
+    result = _api("POST", f"{IG_ID}/media", params={
+        "video_url": video_url,
+        "media_type": "STORIES",
+    })
+    cid = result["id"]
+    _wait_ready(cid, timeout=180)
+    print("  → 스토리(영상) 게시 중...")
+    media_id = _publish(cid)
+    print(f"  ✓ 비디오 스토리 완료! media_id: {media_id}")
+    return media_id
+
+
 def post_reel(video_url: str, slot: str, all_data: dict[str, dict]) -> str:
     """하위 호환용 릴스 포스팅 (slot str 기반)"""
     sc = SLOT_CONFIG[slot]

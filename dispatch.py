@@ -101,11 +101,17 @@ def dispatch(slot: str | None, dry_run: bool = False,
             print(f"  ⚠ 종합 캐러셀 포스팅 실패 (건너뜀): {e}")
 
     # 8-b) 언어별 숏릴스 (en → zh → ja)
+    from story_dispatcher import enqueue_story
     langs_order = [l for l in ("en", "zh", "ja") if l in short_reel_urls]
     for i, lang in enumerate(langs_order):
         try:
             instagram.post_short_reel(
                 short_reel_urls[lang], lang, all_data[lang], topic)
+            # 릴스 포스팅 성공 → 1시간 후 스토리 공유 예약
+            try:
+                enqueue_story(short_reel_urls[lang], lang, delay_hours=1.0)
+            except Exception as eq_err:
+                print(f"  ⚠ [{lang}] 스토리 예약 실패 (건너뜀): {eq_err}")
             if i < len(langs_order) - 1:
                 time.sleep(8)
         except Exception as e:
