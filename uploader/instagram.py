@@ -367,10 +367,10 @@ def get_media_insights(media_id: str, media_type: str = "",
     에러 시 {"_error": str} 반환.
     """
     is_reel = media_product_type == "REELS"
-    # REELS: plays 우선 / 그 외: impressions 우선, 실패 시 교차 재시도
+    # 시도 순서: 타입별 우선 메트릭 → 교차 폴백 → reach만 (최후 수단)
     metric_order = (
-        ["plays,reach,saved", "impressions,reach,saved"] if is_reel
-        else ["impressions,reach,saved", "plays,reach,saved"]
+        ["plays,reach,saved", "impressions,reach,saved", "reach,saved"] if is_reel
+        else ["impressions,reach,saved", "plays,reach,saved", "reach,saved"]
     )
 
     def _parse(raw: list) -> dict:
@@ -384,6 +384,9 @@ def get_media_insights(media_id: str, media_type: str = "",
         # plays → impressions 키 통일
         if "plays" in out and "impressions" not in out:
             out["impressions"] = out["plays"]
+        # reach만 있을 때 impressions로도 사용 (근사값)
+        if "reach" in out and "impressions" not in out:
+            out["impressions"] = out["reach"]
         return out
 
     last_err = "알 수 없는 오류"
@@ -393,7 +396,9 @@ def get_media_insights(media_id: str, media_type: str = "",
                 "metric": metrics,
                 "period": "lifetime",
             })
-            return _parse(data.get("data", []))
+            result = _parse(data.get("data", []))
+            if result:   # 빈 응답은 다음 시도
+                return result
         except Exception as e:
             last_err = str(e)
             continue  # 다음 메트릭 세트 시도

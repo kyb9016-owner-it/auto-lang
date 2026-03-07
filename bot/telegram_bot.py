@@ -535,12 +535,10 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
     slot_emoji = {"morning": "🌅", "lunch": "☕", "evening": "✈️", "other": "🌙"}
     slot_label = {"morning": "morning", "lunch": "lunch  ", "evening": "evening", "other": "other  "}
 
-    lines = [f"📊 최근 {total}개 포스팅 분석\n"]
-
-    # API 오류가 있으면 원인 표시 (전체 메시지)
-    if errors:
-        err_preview = errors[0][:200]
-        lines.append(f"⚠️ 인사이트 API 오류 ({len(errors)}건)\n{err_preview}\n")
+    skip_count = len(errors)
+    analyzed   = total - skip_count
+    lines = [f"📊 최근 {total}개 포스팅 분석 ({analyzed}개 집계"
+             + (f", {skip_count}개 스킵)" if skip_count else ")") + "\n"]
 
     # 슬롯별 평균 성과
     has_data = any(
