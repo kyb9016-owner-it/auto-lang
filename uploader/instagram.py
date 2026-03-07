@@ -1,6 +1,7 @@
 """Instagram Graph API — 릴스 및 캐러셀 포스팅"""
 import os
 import time
+from datetime import datetime, timezone, timedelta
 import requests
 from config import LANG_CONFIG, SLOT_CONFIG, HASHTAGS, LANG_HASHTAGS
 
@@ -345,6 +346,156 @@ def post_reel(video_url: str, slot: str, all_data: dict[str, dict]) -> str:
     print(f"  ✓ 릴스 완료! media_id: {media_id}")
     return media_id
 
+
+# ── 분석 함수 ─────────────────────────────────────────────────────────────────
+
+def get_recent_media(limit: int = 30) -> list[dict]:
+    """최근 미디어 목록 (id, timestamp, media_type, like_count, comments_count)"""
+    data = _api("GET", f"{IG_ID}/media", params={
+        "fields": "id,timestamp,media_type,like_count,comments_count",
+        "limit": limit,
+    })
+    return data.get("data", [])
+
+
+def get_media_insights(media_id: str, media_type: str = "") -> dict:
+    """
+    특정 미디어 인사이트 (impressions, reach, video_views, saved).
+    에러 시 빈 dict 반환 (권한 없거나 오래된 포스팅).
+    VIDEO(릴스)만 video_views 지원.
+    """
+    try:
+        if media_type == "VIDEO":
+            metrics = "impressions,reach,video_views,saved"
+        else:
+            metrics = "impressions,reach,saved"
+        data = _api("GET", f"{media_id}/insights", params={"metric": metrics})
+        result = {}
+        for item in data.get("data", []):
+            name = item["name"]
+            val = item.get("value")
+            if val is None and item.get("values"):
+                val = item["values"][0].get("value", 0)
+            result[name] = val or 0
+        return result
+    except Exception:
+        return {}
+
+
+def get_analytics(limit: int = 30) -> dict:
+    """
+    최근 포스팅 분석 종합 (시간대·슬롯별 집계 포함).
+
+    슬롯 분류 (KST 기준):
+      morning: 05~10시, lunch: 11~14시, evening: 17~22시, other: 나머지
+
+    Returns:
+      {total, posts, by_slot, best_slot, best_hour, top_hours}
+    """
+    KST = timezone(timedelta(hours=9))
+    _SLOT_RANGES = {
+        "morning": range(5, 11),
+        "lunch":   range(11, 15),
+        "evening": range(17, 23),
+    }
+
+    def _classify_slot(kst_hour: int) -> str:
+        for slot, rng in _SLOT_RANGES.items():
+            if kst_hour in rng:
+                return slot
+        return "other"
+
+    media_list = get_recent_media(limit)
+
+    posts = []
+    slot_stats: dict[str, list] = {"morning": [], "lunch": [], "evening": [], "other": []}
+    hour_stats: dict[int, list] = {}
+
+    for m in media_list:
+        media_id   = m["id"]
+        ts         = m.get("timestamp", "")
+        media_type = m.get("media_type", "")
+
+        # KST 변환
+        try:
+            dt_utc  = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            dt_kst  = dt_utc.astimezone(KST)
+            kst_hour = dt_kst.hour
+            ts_label = dt_kst.strftime("%Y-%m-%d %H:%M KST")
+        except Exception:
+            dt_kst   = None
+            kst_hour = -1
+            ts_label = ts
+
+        # 인사이트 조회
+        insights    = get_media_insights(media_id, media_type)
+        impressions = insights.get("impressions", 0)
+        reach       = insights.get("reach", 0)
+        video_views = insights.get("video_views", 0)
+        saved       = insights.get("saved", 0)
+        likes       = m.get("like_count", 0) or 0
+        comments    = m.get("comments_count", 0) or 0
+        engagement  = likes + comments + saved
+
+        slot = _classify_slot(kst_hour)
+
+        post = {
+            "id":          media_id,
+            "timestamp":   ts_label,
+            "kst_hour":    kst_hour,
+            "slot":        slot,
+            "media_type":  media_type,
+            "impressions": impressions,
+            "reach":       reach,
+            "video_views": video_views,
+            "saved":       saved,
+            "likes":       likes,
+            "comments":    comments,
+            "engagement":  engagement,
+        }
+        posts.append(post)
+        slot_stats[slot].append(post)
+        if kst_hour >= 0:
+            hour_stats.setdefault(kst_hour, []).append(post)
+
+    # 슬롯별 평균 계산
+    def _avg(plist: list, key: str) -> float:
+        return sum(p[key] for p in plist) / len(plist) if plist else 0.0
+
+    by_slot: dict = {}
+    for slot, sp in slot_stats.items():
+        if not sp:
+            continue
+        by_slot[slot] = {
+            "count":       len(sp),
+            "impressions": round(_avg(sp, "impressions")),
+            "reach":       round(_avg(sp, "reach")),
+            "video_views": round(_avg(sp, "video_views")),
+            "engagement":  round(_avg(sp, "engagement")),
+        }
+
+    # 최고 슬롯 (impressions 기준)
+    best_slot = max(by_slot, key=lambda s: by_slot[s]["impressions"]) if by_slot else None
+
+    # 시간대별 상위 3개
+    hour_avgs = {
+        h: round(sum(p["impressions"] for p in hp) / len(hp))
+        for h, hp in hour_stats.items() if hp
+    }
+    top_hours = sorted(hour_avgs.items(), key=lambda x: x[1], reverse=True)[:3]
+    best_hour = top_hours[0][0] if top_hours else None
+
+    return {
+        "total":     len(posts),
+        "posts":     posts,
+        "by_slot":   by_slot,
+        "best_slot": best_slot,
+        "best_hour": best_hour,
+        "top_hours": top_hours,
+    }
+
+
+# ── 하위 호환 함수 (기존 코드 참조 대비) ────────────────────────────────────
 
 def post_carousel(image_urls: dict[str, str], slot: str,
                   all_data: dict[str, dict], is_vocab: bool = False) -> str:

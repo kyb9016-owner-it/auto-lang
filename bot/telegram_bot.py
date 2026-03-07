@@ -17,6 +17,8 @@ LangCard Studio — 텔레그램 봇 (main 서버용)
   /topic    — 오늘 슬롯별 주제 확인
   /history [en|zh|ja]  — 최근 사용 표현 목록
   /prefetch — 내일 표현 미리 생성
+  /analyze [n]  — 최근 n개 포스팅 성과 분석 (기본 30)
+  /schedule [morning|lunch|evening] [HH:MM]  — KST 기준 cron 스케줄 변경
 
 사용법:
   python3 bot/telegram_bot.py
@@ -386,25 +388,47 @@ async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @owner_only
 async def cmd_cron(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """다음 자동 실행까지 남은 시간"""
+    """다음 자동 실행까지 남은 시간 (실제 crontab 기반)"""
     now = datetime.now(timezone.utc)
     kst = timezone(timedelta(hours=9))
 
-    slots = [
-        ("morning 🌅", 23, 0),
-        ("lunch   ☕", 3,  0),
-        ("evening ✈️", 11, 0),
-    ]
+    # 실제 crontab에서 슬롯별 UTC 시간 파싱
+    slot_keywords = {
+        "morning": ("morning 🌅", "--slot morning"),
+        "lunch":   ("lunch   ☕", "--slot lunch"),
+        "evening": ("evening ✈️", "--slot evening"),
+    }
+    # 기본값 (UTC)
+    defaults = {"morning": (23, 0), "lunch": (3, 0), "evening": (11, 0)}
+    slot_times: dict[str, tuple[int, int]] = dict(defaults)
+
+    try:
+        result = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=10)
+        for line in result.stdout.splitlines():
+            for slot, (_, keyword) in slot_keywords.items():
+                if keyword in line and "dispatch.py" in line:
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        try:
+                            utc_m = int(parts[0])
+                            utc_h = int(parts[1])
+                            slot_times[slot] = (utc_h, utc_m)
+                        except (ValueError, IndexError):
+                            pass
+    except Exception:
+        pass  # 파싱 실패 시 기본값 사용
+
     lines = ["⏰ 다음 자동 실행 시간\n"]
-    for name, h, m in slots:
-        next_run = now.replace(hour=h, minute=m, second=0, microsecond=0)
+    for slot, (label, _) in slot_keywords.items():
+        utc_h, utc_m = slot_times[slot]
+        next_run = now.replace(hour=utc_h, minute=utc_m, second=0, microsecond=0)
         if next_run <= now:
             next_run += timedelta(days=1)
         diff = next_run - now
         hours, rem = divmod(int(diff.total_seconds()), 3600)
         minutes = rem // 60
         kst_time = next_run.astimezone(kst).strftime("%m/%d %H:%M KST")
-        lines.append(f"{name}: {kst_time} (약 {hours}시간 {minutes}분 후)")
+        lines.append(f"{label}: {kst_time} (약 {hours}시간 {minutes}분 후)")
 
     await update.message.reply_text("\n".join(lines))
 
@@ -477,6 +501,221 @@ async def cmd_prefetch(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @owner_only
+async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    사용법: /analyze [n]  (기본 30, 최대 50)
+    최근 n개 포스팅의 시간대별·슬롯별 성과를 분석합니다.
+    """
+    n = 30
+    if context.args:
+        try:
+            n = max(5, min(int(context.args[0]), 50))
+        except ValueError:
+            pass
+
+    await update.message.reply_text(
+        f"📊 Instagram 최근 {n}개 포스팅 분석 중... ⏳\n약 30~60초 소요"
+    )
+
+    try:
+        sys.path.insert(0, str(ROOT))
+        from uploader.instagram import get_analytics
+        result = get_analytics(limit=n)
+    except Exception as e:
+        await update.message.reply_text(f"❌ 분석 실패: {e}")
+        return
+
+    total     = result["total"]
+    by_slot   = result["by_slot"]
+    best_slot = result["best_slot"]
+    best_hour = result["best_hour"]
+    top_hours = result["top_hours"]
+
+    slot_emoji = {"morning": "🌅", "lunch": "☕", "evening": "✈️", "other": "🌙"}
+    slot_label = {"morning": "morning", "lunch": "lunch  ", "evening": "evening", "other": "other  "}
+
+    lines = [f"📊 최근 {total}개 포스팅 분석\n"]
+
+    # 슬롯별 평균 성과
+    if by_slot:
+        lines.append("🏆 슬롯별 평균 성과")
+        for slot in ("morning", "lunch", "evening", "other"):
+            if slot not in by_slot:
+                continue
+            s    = by_slot[slot]
+            mark = "  ← 최고" if slot == best_slot else ""
+            lines.append(
+                f"{slot_emoji[slot]} {slot_label[slot]} ({s['count']}개): "
+                f"조회 {s['impressions']:,} | 도달 {s['reach']:,} | 인게이지 {s['engagement']}{mark}"
+            )
+    else:
+        lines.append("(인사이트 데이터 없음 — 비즈니스 계정 확인 필요)")
+
+    # 시간대별 TOP 3
+    if top_hours:
+        lines.append("\n⏰ 시간대별 TOP 3 (KST)")
+        for rank, (hour, avg_imp) in enumerate(top_hours, 1):
+            lines.append(f"  {rank}위 {hour:02d}시: 평균 {avg_imp:,} 조회")
+
+    # 추천
+    if best_slot and best_hour is not None:
+        lines.append(f"\n💡 추천: /schedule {best_slot} {best_hour:02d}:00")
+    elif not by_slot:
+        lines.append("\n💡 비즈니스 계정 전환 후 이용 가능합니다.")
+
+    await update.message.reply_text("\n".join(lines))
+
+
+@owner_only
+async def cmd_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    사용법: /schedule [morning|lunch|evening] [HH:MM]
+    KST 기준으로 해당 슬롯의 cron 스케줄을 변경합니다.
+    예) /schedule lunch 13:00
+    """
+    # 인수 부족 시 현재 스케줄 표시
+    if len(context.args) < 2:
+        # 실제 crontab에서 읽기
+        slot_keywords = {
+            "morning": "--slot morning",
+            "lunch":   "--slot lunch",
+            "evening": "--slot evening",
+        }
+        slot_emoji = {"morning": "🌅", "lunch": "☕", "evening": "✈️"}
+        slot_times: dict[str, str] = {
+            "morning": "08:00", "lunch": "12:00", "evening": "20:00"
+        }
+        try:
+            result = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=10)
+            for line in result.stdout.splitlines():
+                for slot, keyword in slot_keywords.items():
+                    if keyword in line and "dispatch.py" in line:
+                        parts = line.strip().split()
+                        if len(parts) >= 2:
+                            try:
+                                utc_h = int(parts[1])
+                                utc_m = int(parts[0])
+                                kst_h = (utc_h + 9) % 24
+                                slot_times[slot] = f"{kst_h:02d}:{utc_m:02d}"
+                            except (ValueError, IndexError):
+                                pass
+        except Exception:
+            pass
+
+        lines = ["⏰ 현재 스케줄 (KST)\n"]
+        for slot in ("morning", "lunch", "evening"):
+            lines.append(f"  {slot_emoji[slot]} {slot}: {slot_times[slot]}")
+        lines.append("\n사용법: /schedule [morning|lunch|evening] [HH:MM]")
+        lines.append("예)  /schedule lunch 13:00")
+        await update.message.reply_text("\n".join(lines))
+        return
+
+    slot     = context.args[0]
+    time_str = context.args[1]
+
+    if slot not in ("morning", "lunch", "evening"):
+        await update.message.reply_text("슬롯: morning / lunch / evening")
+        return
+
+    # HH:MM 파싱
+    try:
+        hh, mm = time_str.split(":")
+        kst_h  = int(hh)
+        kst_m  = int(mm)
+        if not (0 <= kst_h <= 23 and 0 <= kst_m <= 59):
+            raise ValueError
+    except (ValueError, AttributeError):
+        await update.message.reply_text("시간 형식 오류: HH:MM (예: 13:00, 08:30)")
+        return
+
+    # KST → UTC
+    utc_h = (kst_h - 9) % 24
+
+    slot_dispatch = {
+        "morning": "--slot morning",
+        "lunch":   "--slot lunch",
+        "evening": "--slot evening",
+    }
+    slot_emoji = {"morning": "🌅", "lunch": "☕", "evening": "✈️"}
+
+    new_cron_entry = (
+        f"{kst_m} {utc_h} * * * "
+        f"cd /opt/auto-lang && python3 dispatch.py {slot_dispatch[slot]} "
+        f">> /var/log/langcard/cron.log 2>&1"
+    )
+
+    # 현재 crontab 읽기
+    try:
+        result = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=10)
+        current_cron = result.stdout if result.returncode == 0 else ""
+    except Exception as e:
+        await update.message.reply_text(f"❌ crontab 읽기 실패: {e}")
+        return
+
+    # 해당 슬롯 라인 교체 (없으면 추가)
+    keyword     = slot_dispatch[slot]
+    old_time_kst = ""
+    new_lines   = []
+    replaced    = False
+
+    for line in current_cron.splitlines():
+        if keyword in line and "dispatch.py" in line:
+            # 기존 시간 파싱
+            parts = line.strip().split()
+            if len(parts) >= 2:
+                try:
+                    old_utc_h = int(parts[1])
+                    old_utc_m = int(parts[0])
+                    old_kst_h = (old_utc_h + 9) % 24
+                    old_time_kst = f"{old_kst_h:02d}:{old_utc_m:02d}"
+                except (ValueError, IndexError):
+                    pass
+            new_lines.append(new_cron_entry)
+            replaced = True
+        else:
+            new_lines.append(line)
+
+    if not replaced:
+        new_lines.append(new_cron_entry)
+
+    # 빈 줄 정리 후 crontab 적용
+    new_cron = "\n".join(l for l in new_lines if l.strip()) + "\n"
+    try:
+        proc = subprocess.run(
+            ["crontab", "-"],
+            input=new_cron, capture_output=True, text=True, timeout=10
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr.strip())
+    except Exception as e:
+        await update.message.reply_text(f"❌ crontab 적용 실패: {e}")
+        return
+
+    # deploy/crontab.txt 도 동기화
+    crontab_txt = ROOT / "deploy" / "crontab.txt"
+    try:
+        if crontab_txt.exists():
+            txt_lines = crontab_txt.read_text().splitlines()
+            new_txt   = []
+            for line in txt_lines:
+                if keyword in line and "dispatch.py" in line:
+                    new_txt.append(new_cron_entry)
+                else:
+                    new_txt.append(line)
+            crontab_txt.write_text("\n".join(new_txt) + "\n")
+    except Exception:
+        pass  # 파일 동기화 실패해도 crontab 적용은 완료됨
+
+    arrow = f" {old_time_kst} →" if old_time_kst else ""
+    await update.message.reply_text(
+        f"✅ 스케줄 변경 완료!\n\n"
+        f"{slot_emoji[slot]} {slot}:{arrow} {kst_h:02d}:{kst_m:02d} KST\n"
+        f"(UTC {utc_h:02d}:{kst_m:02d})\n\n"
+        f"확인: /cron",
+    )
+
+
+@owner_only
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📖 LangCard Studio 봇 명령어\n\n"
@@ -488,6 +727,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/lang [슬롯] [en|zh|ja] — 특정 언어만 🌐\n"
         "/event [주제] — 이벤트/재밌는 표현 🎉\n"
         "/promo — 고정 캐러셀 📌\n\n"
+        "── 분석 & 스케줄 ──\n"
+        "/analyze [n] — 포스팅 성과 분석 📊\n"
+        "/schedule [슬롯] [HH:MM] — cron 스케줄 변경 ⏰\n\n"
         "── 관리 ──\n"
         "/status  — 서버 상태 🔍\n"
         "/log [n] — cron 로그 📋\n"
@@ -521,6 +763,8 @@ def main():
     app.add_handler(CommandHandler("topic",    cmd_topic))
     app.add_handler(CommandHandler("history",  cmd_history))
     app.add_handler(CommandHandler("prefetch", cmd_prefetch))
+    app.add_handler(CommandHandler("analyze",  cmd_analyze))
+    app.add_handler(CommandHandler("schedule", cmd_schedule))
     app.add_handler(CommandHandler("help",     cmd_help))
     app.add_handler(CommandHandler("start",    cmd_help))
 
