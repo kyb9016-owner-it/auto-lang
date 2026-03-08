@@ -50,6 +50,9 @@ WORKER_SECRET = os.environ.get("WORKER_SECRET", "")
 
 _TOPIC_MAP = {"greetings": 0, "cafe": 1, "travel": 2}
 
+# 슬롯별 대표 언어 (복습 캐러셀에서 슬롯당 1언어 표시)
+_SLOT_LANG = {"morning": "en", "lunch": "zh", "evening": "ja"}
+
 # ── 이벤트 주제 목록 ──────────────────────────────────────────────────────────
 
 EVENT_TOPICS = [
@@ -222,7 +225,8 @@ def run_job(req: JobRequest, creds=Security(_verify)):
 
     # 오늘 데이터 JSON 저장 (일반 슬롯만, 이벤트는 저장 안 함)
     if not req.custom_topic:
-        data_json = os.path.join(output_dir, f"data_{today}.json")
+        slot_key  = req.slot or "daily"
+        data_json = os.path.join(output_dir, f"data_{slot_key}_{today}.json")
         with open(data_json, "w", encoding="utf-8") as f:
             json.dump({"topic": topic, "data": all_data}, f, ensure_ascii=False, indent=2)
         print(f"  ✓ 데이터 저장: {data_json}")
@@ -234,8 +238,8 @@ def run_job(req: JobRequest, creds=Security(_verify)):
     vocab_paths: dict[str, str] = {}
     for lang in list(all_data.keys()):
         try:
-            image_paths[lang] = card_renderer.render(all_data[lang], lang, topic)
-            vocab_paths[lang] = card_renderer.render_vocab(all_data[lang], lang, topic)
+            image_paths[lang] = card_renderer.render(all_data[lang], lang, topic, date_str=today)
+            vocab_paths[lang] = card_renderer.render_vocab(all_data[lang], lang, topic, date_str=today)
             print(f"  ✓ {lang}: 표현카드 + 단어카드")
         except Exception as e:
             print(f"  ✗ {lang} 렌더링 실패 (건너뜀): {e}")
@@ -285,33 +289,76 @@ def run_job(req: JobRequest, creds=Security(_verify)):
 
     # ── Step 6: 전날 카드 수집 (일반 슬롯만) ────────────────────────────────
     print(f"\n[6/7] 전날 종합 캐러셀 준비 (어제: {yesterday})")
-    recap_pngs: list[str] = []
-    yest_topic    = topic     # 초기값 (recap 없을 때 fallback)
+    recap_pngs: list[str]             = []
+    recap_meta: list[tuple[str, str]] = []   # (lang, suffix) — Cloudinary 업로드용
+    yest_topic    = topic     # 초기값
     yest_all_data = all_data  # 초기값
+
     if not req.custom_topic and len(langs) == len(LANGUAGES):
         try:
-            yest_imgs, yest_vocs = reel_renderer.find_yesterday_cards(yesterday)
-            if len(yest_imgs) == 3:
-                yest_json = os.path.join(output_dir, f"data_{yesterday}.json")
-                yest_all_data = all_data
-                yest_topic    = topic
-                if os.path.exists(yest_json):
-                    with open(yest_json, "r", encoding="utf-8") as f:
-                        saved = json.load(f)
-                        yest_all_data = saved.get("data", all_data)
-                        yest_topic    = saved.get("topic", topic)
-                    print(f"  ✓ 어제 데이터 로드")
-                cover_path = card_renderer.render_recap_cover(
-                    yest_all_data, yest_topic, yesterday)
-                recap_pngs.append(cover_path)
-                for lang in ("en", "zh", "ja"):
-                    if lang in yest_imgs:
-                        recap_pngs.append(yest_imgs[lang])
-                    if lang in yest_vocs:
-                        recap_pngs.append(yest_vocs[lang])
-                print(f"  ✓ 캐러셀 {len(recap_pngs)}장 준비")
+            # ── 3개 슬롯 JSON 로드 ───────────────────────────────────────
+            slot_data: dict[str, dict] = {}
+            for sl in ("morning", "lunch", "evening"):
+                jp = os.path.join(output_dir, f"data_{sl}_{yesterday}.json")
+                if os.path.exists(jp):
+                    with open(jp, "r", encoding="utf-8") as f:
+                        slot_data[sl] = json.load(f)
+                    print(f"  ✓ {sl} 데이터 로드")
+
+            if not slot_data:
+                print(f"  ⚠ 전날 슬롯 데이터 없음, 건너뜀")
             else:
-                print(f"  ⚠ 전날 카드 {len(yest_imgs)}/3개, 건너뜀")
+                # recap_cover용 combined data (슬롯별 대표 언어 표현)
+                combined_data: dict = {}
+                for sl, sd in slot_data.items():
+                    lk = _SLOT_LANG[sl]
+                    if lk in sd.get("data", {}):
+                        combined_data[lk] = sd["data"][lk]
+                cover_topic   = next(iter(slot_data.values())).get("topic", topic)
+                yest_topic    = cover_topic
+                yest_all_data = combined_data or all_data
+
+                # ── 슬라이드 1: 종합 커버 ────────────────────────────────
+                cover_path = card_renderer.render_recap_cover(
+                    combined_data, cover_topic, yesterday)
+                recap_pngs.append(cover_path)
+                recap_meta.append(("all", "cover"))
+
+                # ── 슬라이드 2-10: 슬롯별 [섹션커버 + 표현 + 단어] ───────
+                for sl in ("morning", "lunch", "evening"):
+                    if sl not in slot_data:
+                        continue
+                    lk       = _SLOT_LANG[sl]
+                    sl_data  = slot_data[sl]
+                    lang_data = sl_data.get("data", {}).get(lk, {})
+                    sl_topic  = sl_data.get("topic", topic)
+
+                    # 섹션 커버
+                    try:
+                        sc_path = card_renderer.render_slot_cover(
+                            sl, lk, lang_data, sl_topic, yesterday)
+                        recap_pngs.append(sc_path)
+                        recap_meta.append((lk, f"{sl}_cover"))
+                    except Exception as e:
+                        print(f"  ⚠ {sl} 섹션 커버 실패: {e}")
+
+                    # 표현 카드
+                    expr_p = os.path.join(output_dir, f"expr_{lk}_{sl}_{yesterday}.png")
+                    if os.path.exists(expr_p):
+                        recap_pngs.append(expr_p)
+                        recap_meta.append((lk, "expr"))
+                    else:
+                        print(f"  ⚠ 표현 카드 없음: {os.path.basename(expr_p)}")
+
+                    # 단어 카드
+                    voc_p = os.path.join(output_dir, f"vocab_{lk}_{sl}_{yesterday}.png")
+                    if os.path.exists(voc_p):
+                        recap_pngs.append(voc_p)
+                        recap_meta.append((lk, "vocab"))
+                    else:
+                        print(f"  ⚠ 단어 카드 없음: {os.path.basename(voc_p)}")
+
+                print(f"  ✓ 캐러셀 {len(recap_pngs)}장 준비")
         except Exception as e:
             print(f"  ⚠ 전날 카드 탐색 실패 (건너뜀): {e}")
     else:
@@ -348,13 +395,11 @@ def run_job(req: JobRequest, creds=Security(_verify)):
 
     recap_card_urls: list[str] = []
     if recap_pngs:
-        _lang_seq   = ("all", "en", "en", "zh", "zh", "ja", "ja")
-        _suffix_seq = ("cover", "expr", "vocab", "expr", "vocab", "expr", "vocab")
-        for i, png in enumerate(recap_pngs):
+        for i, (png, (lng, sfx)) in enumerate(zip(recap_pngs, recap_meta)):
             try:
                 url = cloudinary_up.upload(
-                    png, _lang_seq[i], "recap",
-                    suffix=_suffix_seq[i], date_str=yesterday)
+                    png, lng, "recap",
+                    suffix=sfx, date_str=yesterday)
                 recap_card_urls.append(url)
             except Exception as e:
                 print(f"  ⚠ 캐러셀 슬라이드 {i+1} 업로드 실패: {e}")

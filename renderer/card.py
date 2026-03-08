@@ -5,7 +5,7 @@ from typing import Optional
 from datetime import date, datetime
 from PIL import Image, ImageDraw, ImageFont
 
-from config import LANG_CONFIG, SLOT_CONFIG
+from config import LANG_CONFIG, SLOT_CONFIG, _today_kst
 from renderer.themes import CARD_THEMES, CARD_W, CARD_H, PAD, USABLE_W
 from renderer import fonts as F
 
@@ -272,7 +272,7 @@ _VOCAB_ZONE_TOP   = 720   # 단어 구역 시작 y
 _VOCAB_ZONE_BOT   = 1040  # 단어 구역 끝 y
 
 
-def render(data: dict, lang: str, topic, save: bool = True) -> str:
+def render(data: dict, lang: str, topic, date_str: str = "", save: bool = True) -> str:
     """
     표현 카드 렌더링.
     topic: dict (TOPIC_CONFIG 항목) 또는 str (하위 호환용 slot 이름)
@@ -444,8 +444,8 @@ def render(data: dict, lang: str, topic, save: bool = True) -> str:
 
     # ── 저장 ─────────────────────────────────────────────────────────
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    today = date.today().strftime("%Y%m%d")
-    out_path = os.path.join(OUTPUT_DIR, f"expr_{lang}_{today}.png")
+    _date    = date_str or _today_kst().strftime("%Y%m%d")
+    out_path = os.path.join(OUTPUT_DIR, f"expr_{lang}_{slot}_{_date}.png")
     if save:
         img.convert("RGB").save(out_path, "PNG", optimize=True)
         print(f"  ✓ 카드 저장: {out_path}")
@@ -454,7 +454,7 @@ def render(data: dict, lang: str, topic, save: bool = True) -> str:
 
 # ── 단어 전용 카드 렌더러 ─────────────────────────────────────────────────────
 
-def render_vocab(data: dict, lang: str, topic, save: bool = True) -> str:
+def render_vocab(data: dict, lang: str, topic, date_str: str = "", save: bool = True) -> str:
     """
     단어 전용 카드 렌더링.
     topic: dict (TOPIC_CONFIG 항목) 또는 str (하위 호환용 slot 이름)
@@ -593,8 +593,8 @@ def render_vocab(data: dict, lang: str, topic, save: bool = True) -> str:
 
     # ── 저장 ─────────────────────────────────────────────────────────
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    today    = date.today().strftime("%Y%m%d")
-    out_path = os.path.join(OUTPUT_DIR, f"vocab_{lang}_{today}.png")
+    _date    = date_str or _today_kst().strftime("%Y%m%d")
+    out_path = os.path.join(OUTPUT_DIR, f"vocab_{lang}_{slot}_{_date}.png")
     if save:
         img.convert("RGB").save(out_path, "PNG", optimize=True)
         print(f"  ✓ 단어 카드 저장: {out_path}")
@@ -768,6 +768,130 @@ def render_recap_cover(all_data: dict, topic: dict, date_str: str) -> str:
 # ── 훅 & 아웃트로 프레임 ────────────────────────────────────────────────────
 
 FRAMES_DIR = os.path.join(OUTPUT_DIR, "reel_frames")  # reel.py와 동일 경로 공유
+
+
+# ── 슬롯 섹션 커버 (복습 캐러셀용) ──────────────────────────────────────────
+
+def render_slot_cover(slot: str, lang: str, data: dict, topic, date_str: str) -> str:
+    """
+    복습 캐러셀 섹션 구분 커버 카드.
+    슬롯(아침/점심/저녁) + 언어 + 표현 미리보기.
+    Returns: output/slot_cover_{slot}_{date_str}.png
+    """
+    F.ensure_fonts()
+
+    _SLOT_LABEL  = {"morning": "아침 표현", "lunch": "점심 표현", "evening": "저녁 표현"}
+    _SLOT_TIME   = {"morning": "08:00 AM",  "lunch": "12:00 PM",  "evening": "08:00 PM"}
+    _SLOT_ACCENT = {
+        "morning": (255, 190, 60),   # amber
+        "lunch":   (80,  220, 170),  # teal
+        "evening": (180, 120, 255),  # violet
+    }
+
+    slot_label = _SLOT_LABEL.get(slot, slot)
+    slot_time  = _SLOT_TIME.get(slot, "")
+    accent     = _SLOT_ACCENT.get(slot, (255, 213, 79))
+    lc  = LANG_CONFIG[lang]
+    cx  = CARD_W // 2
+
+    # ── 배경: 짙은 네이비 (recap_cover와 동일) ───────────────────────
+    bg  = _gradient(CARD_W, CARD_H, (12, 15, 40), (28, 35, 75), (18, 22, 55))
+    img = bg.convert("RGBA")
+
+    # 도트 오버레이
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    d_ov  = ImageDraw.Draw(layer)
+    for x in range(0, CARD_W, 20):
+        for y in range(0, CARD_H, 20):
+            d_ov.ellipse([x - 1, y - 1, x + 1, y + 1], fill=(255, 255, 255, 12))
+    img = Image.alpha_composite(img, layer)
+
+    # 상단 컬러 액센트 바
+    bar_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(bar_layer).rectangle([0, 0, CARD_W, 10], fill=(*accent, 255))
+    img = Image.alpha_composite(img, bar_layer)
+
+    draw = ImageDraw.Draw(img)
+    WHITE     = (255, 255, 255, 255)
+    WHITE_DIM = (255, 255, 255, 160)
+    DIVIDER   = (255, 255, 255, 40)
+
+    # ── 슬롯 시간 pill (상단 중앙) ────────────────────────────────────
+    time_font = F.outfit(30)
+    tb = draw.textbbox((0, 0), slot_time, font=time_font)
+    tw = tb[2] - tb[0]; th = tb[3] - tb[1]
+    px, py = 24, 12
+    tx0 = cx - tw // 2 - px; tx1 = cx + tw // 2 + px
+    ty0 = 60;                 ty1 = ty0 + th + py * 2
+    pill = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(pill).rounded_rectangle([tx0, ty0, tx1, ty1], radius=16,
+                                           fill=(*accent, 50))
+    img  = Image.alpha_composite(img, pill)
+    draw = ImageDraw.Draw(img)
+    draw.text((cx - tw // 2, ty0 + py - tb[1]), slot_time,
+              font=time_font, fill=(*accent, 255))
+
+    # ── 슬롯 레이블 (중앙) ────────────────────────────────────────────
+    label_font = F.noto_kr(90)
+    lb = draw.textbbox((0, 0), slot_label, font=label_font)
+    lw = lb[2] - lb[0]; lh = lb[3] - lb[1]
+    y_label = CARD_H // 2 - lh // 2 - 60
+    draw.text(((CARD_W - lw) // 2, y_label - lb[1]), slot_label,
+              font=label_font, fill=WHITE)
+    y_after = y_label + lh + 40
+
+    # ── 국기 + 언어명 ─────────────────────────────────────────────────
+    lang_font = F.noto_kr(46)
+    lang_text = lc["name_native"]
+    flag_size = 48
+    ltb = draw.textbbox((0, 0), lang_text, font=lang_font)
+    ltw = ltb[2] - ltb[0]; lth = ltb[3] - ltb[1]
+    row_w = flag_size + 16 + ltw
+    fx = cx - row_w // 2
+    fy = y_after
+
+    fp = F.flag_path(lc["flag"])
+    if fp:
+        flag_img = Image.open(fp).convert("RGBA").resize(
+            (flag_size, flag_size), Image.LANCZOS)
+        img.paste(flag_img, (fx, fy), flag_img)
+
+    draw = ImageDraw.Draw(img)
+    draw.text((fx + flag_size + 16,
+               fy + flag_size // 2 - lth // 2 - ltb[1]),
+              lang_text, font=lang_font, fill=(*accent, 255))
+    y_after = fy + max(flag_size, lth) + 52
+
+    # ── 표현 미리보기 ─────────────────────────────────────────────────
+    expr_text = data.get("main_expression", "")
+    if expr_text:
+        draw.line([(PAD, y_after - 20), (CARD_W - PAD, y_after - 20)],
+                  fill=DIVIDER, width=1)
+        expr_font = _main_font_fn(lang)(40)
+        disp = expr_text
+        while _tw(draw, disp, expr_font) > USABLE_W and len(disp) > 6:
+            disp = disp[:-1]
+        if disp != expr_text:
+            disp = disp.rstrip(".,!？！…") + "…"
+        eb = draw.textbbox((0, 0), disp, expr_font)
+        ew = eb[2] - eb[0]
+        draw.text(((CARD_W - ew) // 2, y_after - eb[1]), disp,
+                  font=expr_font, fill=WHITE_DIM)
+
+    # ── 워터마크 ─────────────────────────────────────────────────────
+    wm_font = F.noto_kr(22)
+    wm      = "@langcard.studio"
+    wmw     = _tw(draw, wm, wm_font)
+    draw.text(((CARD_W - wmw) // 2, CARD_H - 38), wm,
+              font=wm_font, fill=(255, 255, 255, 60))
+
+    # ── 저장 ─────────────────────────────────────────────────────────
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    out_path = os.path.join(OUTPUT_DIR, f"slot_cover_{slot}_{date_str}.png")
+    img.convert("RGB").save(out_path, "PNG", optimize=True)
+    print(f"  ✓ 슬롯 커버 저장: {out_path}")
+    return out_path
+
 
 _HOOK_QUESTION = {
     "en": ("🇺🇸", "영어", "이거 영어로\n어떻게 말할까요?"),
