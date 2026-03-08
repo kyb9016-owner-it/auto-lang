@@ -1,5 +1,13 @@
 """LangCard Studio — 전역 설정"""
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
+
+# KST = UTC+9 (서버가 UTC여도 한국 날짜 기준으로 파일명/로직 통일)
+_KST = timezone(timedelta(hours=9))
+
+
+def _today_kst() -> date:
+    """서버 timezone과 무관하게 KST 기준 오늘 날짜 반환"""
+    return datetime.now(_KST).date()
 
 # ── 주제 설정 (일별 순환: 0→인사, 1→카페, 2→여행) ───────────────────────────
 TOPIC_CONFIG = {
@@ -28,9 +36,9 @@ TOPIC_CONFIG = {
 
 
 def get_today_topic() -> dict:
-    """오늘의 주제 반환 (날짜 기반 순환)"""
+    """오늘의 주제 반환 (KST 날짜 기반 순환)"""
     epoch = date(2026, 1, 1)
-    idx = (date.today() - epoch).days % 3
+    idx = (_today_kst() - epoch).days % 3
     return TOPIC_CONFIG[idx]
 
 

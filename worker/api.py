@@ -32,7 +32,7 @@ from fastapi import FastAPI, HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
-from config import LANGUAGES, TOPIC_CONFIG, get_today_topic
+from config import LANGUAGES, TOPIC_CONFIG, get_today_topic, _today_kst
 from generator import claude_gen, history as hist_module
 from renderer import card as card_renderer
 from renderer import fonts as F
@@ -145,7 +145,7 @@ def get_event_topics(creds=Security(_verify)):
 @app.post("/prefetch")
 def run_prefetch(req: PrefetchRequest = PrefetchRequest(), creds=Security(_verify)):
     """내일 프리페치 강제 생성"""
-    tomorrow = (date.today() + timedelta(days=1)).strftime("%Y%m%d")
+    tomorrow = (_today_kst() + timedelta(days=1)).strftime("%Y%m%d")
     prefetch_path = os.path.join(_output_path(), f"data_prefetch_{tomorrow}.json")
 
     if os.path.exists(prefetch_path) and not req.force:
@@ -155,7 +155,7 @@ def run_prefetch(req: PrefetchRequest = PrefetchRequest(), creds=Security(_verif
                 "topic": existing.get("topic"), "langs": list(existing.get("data", {}).keys())}
 
     epoch = date(2026, 1, 1)
-    tomorrow_idx   = (date.today() + timedelta(days=1) - epoch).days % 3
+    tomorrow_idx   = (_today_kst() + timedelta(days=1) - epoch).days % 3
     tomorrow_topic = TOPIC_CONFIG[tomorrow_idx]
 
     prefetch_data: dict = {}
@@ -181,8 +181,8 @@ def run_job(req: JobRequest, creds=Security(_verify)):
     Steps 1-7 실행 후 결과 URLs 반환.
     main 서버가 결과를 받아 Instagram 포스팅(Step 8)을 수행함.
     """
-    today      = date.today().strftime("%Y%m%d")
-    yesterday  = (date.today() - timedelta(days=1)).strftime("%Y%m%d")
+    today      = _today_kst().strftime("%Y%m%d")
+    yesterday  = (_today_kst() - timedelta(days=1)).strftime("%Y%m%d")
     langs      = req.langs or list(LANGUAGES)
     topic      = _get_topic(req.slot, req.topic, req.custom_topic)
     output_dir = _output_path()
@@ -293,6 +293,8 @@ def run_job(req: JobRequest, creds=Security(_verify)):
     # ── Step 6: 전날 카드 수집 (일반 슬롯만) ────────────────────────────────
     print(f"\n[6/7] 전날 종합 캐러셀 준비 (어제: {yesterday})")
     recap_pngs: list[str] = []
+    yest_topic    = topic     # 초기값 (recap 없을 때 fallback)
+    yest_all_data = all_data  # 초기값
     if not req.custom_topic and len(langs) == len(LANGUAGES):
         try:
             yest_imgs, yest_vocs = reel_renderer.find_yesterday_cards(yesterday)
@@ -331,6 +333,8 @@ def run_job(req: JobRequest, creds=Security(_verify)):
             "yesterday": yesterday,
             "topic": topic,
             "all_data": all_data,
+            "recap_topic": yest_topic,
+            "recap_data":  yest_all_data,
             "langs_done": list(short_reel_paths.keys()),
             "recap_pngs_count": len(recap_pngs),
             "short_reel_urls": {},
@@ -371,6 +375,8 @@ def run_job(req: JobRequest, creds=Security(_verify)):
         "yesterday": yesterday,
         "topic": topic,
         "all_data": all_data,
+        "recap_topic": yest_topic,
+        "recap_data":  yest_all_data,
         "short_reel_urls": short_reel_urls,
         "recap_card_urls": recap_card_urls,
         "dry_run": False,
@@ -381,13 +387,13 @@ def run_job(req: JobRequest, creds=Security(_verify)):
 
 def _try_prefetch_tomorrow(langs: list, output_dir: str, today_data: dict):
     """오늘 생성 성공 후 내일 표현을 미리 생성해 저장 (실패해도 무시)"""
-    tomorrow = (date.today() + timedelta(days=1)).strftime("%Y%m%d")
+    tomorrow = (_today_kst() + timedelta(days=1)).strftime("%Y%m%d")
     prefetch_path = os.path.join(output_dir, f"data_prefetch_{tomorrow}.json")
     if os.path.exists(prefetch_path):
         return
 
     epoch = date(2026, 1, 1)
-    tomorrow_idx   = (date.today() + timedelta(days=1) - epoch).days % 3
+    tomorrow_idx   = (_today_kst() + timedelta(days=1) - epoch).days % 3
     tomorrow_topic = TOPIC_CONFIG[tomorrow_idx]
 
     print(f"\n  [프리페치] 내일({tomorrow}) 표현 미리 생성 중...")

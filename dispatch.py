@@ -140,7 +140,9 @@ def dispatch(slot: str | None, dry_run: bool = False,
     # 8-a) 종합 캐러셀 (전날 복습) — 이벤트/단일 언어는 생략
     if recap_card_urls and not custom_topic and not lang_filter:
         try:
-            instagram.post_recap_carousel(recap_card_urls, topic, all_data)
+            recap_topic = data.get("recap_topic", topic)
+            recap_data  = data.get("recap_data",  all_data)
+            instagram.post_recap_carousel(recap_card_urls, recap_topic, recap_data)
             carousel_count += 1
             # ── [🔔 3] 캐러셀 완료 ──────────────────────────────────────────
             notify.send(f"📸 <b>종합 캐러셀 업로드 완료</b> ✅\n(어제 복습 카드 {len(recap_card_urls)}장)")
