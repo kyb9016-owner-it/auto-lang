@@ -899,7 +899,7 @@ def render_outro_frame(date_str: str) -> str:
 
     # ── 좋아요 + 저장 CTA (상단) ────────────────────────────────────────
     save_font = F.noto_kr(64)
-    save_text = "❤️ 좋아요   📌 저장"
+    save_text = "♥ 좋아요   ★ 저장"
     sb = draw.textbbox((0, 0), save_text, font=save_font)
     sw = sb[2] - sb[0]
     draw.text(((CARD_W - sw) // 2, CARD_H // 3 - sb[1]),
@@ -907,7 +907,7 @@ def render_outro_frame(date_str: str) -> str:
 
     # ── 팔로우 CTA (중앙) ────────────────────────────────────────────────
     follow_font  = F.noto_kr(58)
-    follow_line1 = "💙 팔로우하면"
+    follow_line1 = "팔로우하면"
     follow_line2 = "매일 3개국어!"
     for i, line in enumerate([follow_line1, follow_line2]):
         fb = draw.textbbox((0, 0), line, font=follow_font)

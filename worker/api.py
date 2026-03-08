@@ -272,17 +272,10 @@ def run_job(req: JobRequest, creds=Security(_verify)):
     short_reel_paths: dict[str, str] = {}
     for lang in image_paths:
         try:
-            hook_png: str | None = None
-            try:
-                hook_png = card_renderer.render_hook_frame(lang, today)
-            except Exception as e:
-                print(f"  ⚠ {lang} 훅 프레임 생성 실패 (건너뜀): {e}")
-
             path = reel_renderer.render_short(
                 image_paths[lang], vocab_paths[lang],
                 expr_tts.get(lang), vocab_tts.get(lang),
                 lang, today,
-                hook_path=hook_png,
                 outro_path=outro_png,
             )
             short_reel_paths[lang] = path

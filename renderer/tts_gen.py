@@ -4,6 +4,7 @@ import asyncio
 import os
 import subprocess
 import tempfile
+import time
 from typing import Optional
 
 try:
@@ -28,7 +29,7 @@ async def _gen_async(text: str, voice: str, out_path: str) -> None:
 
 
 def _generate(text: str, lang: str, out_path: str, slot: str = "default") -> bool:
-    """TTS 생성 공통 함수. 성공 여부 반환."""
+    """TTS 생성 공통 함수. 성공 여부 반환. 네트워크 오류 시 최대 3회 재시도."""
     if not _HAS_EDGE_TTS:
         return False
     os.makedirs(TTS_DIR, exist_ok=True)
@@ -37,14 +38,19 @@ def _generate(text: str, lang: str, out_path: str, slot: str = "default") -> boo
         voice = voices.get(slot) or voices.get("default", "en-US-JennyNeural")
     else:
         voice = voices  # str이면 그대로 (하위호환)
-    try:
-        asyncio.run(_gen_async(text, voice, out_path))
-        size_kb = os.path.getsize(out_path) // 1024
-        print(f"  ✓ TTS 생성: {os.path.basename(out_path)}  ({size_kb} KB)")
-        return True
-    except Exception as e:
-        print(f"  ⚠ TTS 생성 실패 ({lang}): {e}")
-        return False
+    for attempt in range(3):
+        try:
+            asyncio.run(_gen_async(text, voice, out_path))
+            size_kb = os.path.getsize(out_path) // 1024
+            print(f"  ✓ TTS 생성: {os.path.basename(out_path)}  ({size_kb} KB)")
+            return True
+        except Exception as e:
+            if attempt < 2:
+                print(f"  ↻ TTS 재시도 {attempt + 1}/2 ({lang}): {e}")
+                time.sleep(2)
+            else:
+                print(f"  ⚠ TTS 생성 실패 ({lang}): {e}")
+    return False
 
 
 def _get_audio_duration(path: str) -> float:
