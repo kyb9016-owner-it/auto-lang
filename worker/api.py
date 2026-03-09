@@ -32,7 +32,7 @@ from fastapi import FastAPI, HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
-from config import LANGUAGES, TOPIC_CONFIG, get_today_topic, _today_kst
+from config import LANGUAGES, TOPIC_CONFIG, COLLECTION_THEMES, get_today_topic, _today_kst
 from generator import claude_gen, history as hist_module
 from renderer import card as card_renderer
 from renderer import fonts as F
@@ -292,80 +292,44 @@ def run_job(req: JobRequest, creds=Security(_verify)):
         except Exception as e:
             print(f"  ✗ {lang} 숏릴스 실패 (건너뜀): {e}")
 
-    # ── Step 6: 전날 카드 수집 (아침 슬롯만) ────────────────────────────────
-    print(f"\n[6/7] 전날 종합 캐러셀 준비 (어제: {yesterday})")
-    recap_pngs: list[str]             = []
-    recap_meta: list[tuple[str, str]] = []   # (lang, suffix) — Cloudinary 업로드용
-    yest_topic    = topic     # 초기값
-    yest_all_data = all_data  # 초기값
+    # ── Step 6: 컬렉션 캐러셀 생성 (아침 슬롯만) ────────────────────────────
+    print(f"\n[6/7] 컬렉션 캐러셀 생성")
+    collection_pngs: list[str]             = []
+    collection_meta: list[tuple[str, str]] = []   # (lang, suffix)
+    coll_theme: dict = {}
 
     if not req.custom_topic and len(langs) == len(LANGUAGES) and req.slot == "morning":
         try:
-            # ── 3개 슬롯 JSON 로드 ───────────────────────────────────────
-            slot_data: dict[str, dict] = {}
-            for sl in ("morning", "lunch", "evening"):
-                jp = os.path.join(output_dir, f"data_{sl}_{yesterday}.json")
-                if os.path.exists(jp):
-                    with open(jp, "r", encoding="utf-8") as f:
-                        slot_data[sl] = json.load(f)
-                    print(f"  ✓ {sl} 데이터 로드")
+            epoch     = date(2026, 1, 1)
+            theme_idx = (_today_kst() - epoch).days % len(COLLECTION_THEMES)
+            coll_theme = COLLECTION_THEMES[theme_idx]
+            print(f"  테마: {coll_theme['emoji']} {coll_theme['title_ko']}")
 
-            if not slot_data:
-                print(f"  ⚠ 전날 슬롯 데이터 없음, 건너뜀")
-            else:
-                # recap_cover용 combined data (슬롯별 대표 언어 표현)
-                combined_data: dict = {}
-                for sl, sd in slot_data.items():
-                    lk = _SLOT_LANG[sl]
-                    if lk in sd.get("data", {}):
-                        combined_data[lk] = sd["data"][lk]
-                cover_topic   = next(iter(slot_data.values())).get("topic", topic)
-                yest_topic    = cover_topic
-                yest_all_data = combined_data or all_data
+            # Claude API로 8쌍 생성
+            items = claude_gen.generate_collection(coll_theme, n=8)
 
-                # ── 슬라이드 1: 종합 커버 ────────────────────────────────
-                cover_path = card_renderer.render_recap_cover(
-                    combined_data, cover_topic, yesterday)
-                recap_pngs.append(cover_path)
-                recap_meta.append(("all", "cover"))
+            # 커버 (1장)
+            cover_path = card_renderer.render_collection_cover(coll_theme, today)
+            collection_pngs.append(cover_path)
+            collection_meta.append(("all", "cover"))
 
-                # ── 슬라이드 2-10: 슬롯별 [섹션커버 + 표현 + 단어] ───────
-                for sl in ("morning", "lunch", "evening"):
-                    if sl not in slot_data:
-                        continue
-                    lk       = _SLOT_LANG[sl]
-                    sl_data  = slot_data[sl]
-                    lang_data = sl_data.get("data", {}).get(lk, {})
-                    sl_topic  = sl_data.get("topic", topic)
+            # 슬라이드 (8장)
+            for i, item in enumerate(items[:8], 1):
+                try:
+                    sl_path = card_renderer.render_collection_slide(item, i, len(items[:8]), today)
+                    collection_pngs.append(sl_path)
+                    collection_meta.append(("all", f"slide_{i:02d}"))
+                except Exception as e:
+                    print(f"  ⚠ 슬라이드 {i} 렌더링 실패: {e}")
 
-                    # 섹션 커버
-                    try:
-                        sc_path = card_renderer.render_slot_cover(
-                            sl, lk, lang_data, sl_topic, yesterday)
-                        recap_pngs.append(sc_path)
-                        recap_meta.append((lk, f"{sl}_cover"))
-                    except Exception as e:
-                        print(f"  ⚠ {sl} 섹션 커버 실패: {e}")
+            # CTA (1장)
+            cta_path = card_renderer.render_collection_cta(today)
+            collection_pngs.append(cta_path)
+            collection_meta.append(("all", "cta"))
 
-                    # 표현 카드
-                    expr_p = os.path.join(output_dir, f"expr_{lk}_{sl}_{yesterday}.png")
-                    if os.path.exists(expr_p):
-                        recap_pngs.append(expr_p)
-                        recap_meta.append((lk, "expr"))
-                    else:
-                        print(f"  ⚠ 표현 카드 없음: {os.path.basename(expr_p)}")
-
-                    # 단어 카드
-                    voc_p = os.path.join(output_dir, f"vocab_{lk}_{sl}_{yesterday}.png")
-                    if os.path.exists(voc_p):
-                        recap_pngs.append(voc_p)
-                        recap_meta.append((lk, "vocab"))
-                    else:
-                        print(f"  ⚠ 단어 카드 없음: {os.path.basename(voc_p)}")
-
-                print(f"  ✓ 캐러셀 {len(recap_pngs)}장 준비")
+            print(f"  ✓ 컬렉션 캐러셀 {len(collection_pngs)}장 준비")
         except Exception as e:
-            print(f"  ⚠ 전날 카드 탐색 실패 (건너뜀): {e}")
+            print(f"  ⚠ 컬렉션 캐러셀 생성 실패 (건너뜀): {e}")
     else:
         if req.custom_topic:
             print(f"  → 이벤트 모드: 캐러셀 생략")
@@ -380,15 +344,13 @@ def run_job(req: JobRequest, creds=Security(_verify)):
         return {
             "status": "dry_run",
             "today": today,
-            "yesterday": yesterday,
             "topic": topic,
             "all_data": all_data,
-            "recap_topic": yest_topic,
-            "recap_data":  yest_all_data,
+            "collection_theme": coll_theme,
             "langs_done": list(short_reel_paths.keys()),
-            "recap_pngs_count": len(recap_pngs),
+            "collection_pngs_count": len(collection_pngs),
             "short_reel_urls": {},
-            "recap_card_urls": [],
+            "collection_card_urls": [],
             "dry_run": True,
         }
 
@@ -403,34 +365,32 @@ def run_job(req: JobRequest, creds=Security(_verify)):
         except Exception as e:
             print(f"  ✗ {lang} 숏릴스 업로드 실패: {e}")
 
-    recap_card_urls: list[str] = []
-    if recap_pngs:
-        for i, (png, (lng, sfx)) in enumerate(zip(recap_pngs, recap_meta)):
+    collection_card_urls: list[str] = []
+    if collection_pngs:
+        for i, (png, (lng, sfx)) in enumerate(zip(collection_pngs, collection_meta)):
             try:
                 url = cloudinary_up.upload(
-                    png, lng, "recap",
-                    suffix=sfx, date_str=yesterday)
-                recap_card_urls.append(url)
+                    png, lng, "collection",
+                    suffix=sfx, date_str=today)
+                collection_card_urls.append(url)
             except Exception as e:
-                print(f"  ⚠ 캐러셀 슬라이드 {i+1} 업로드 실패: {e}")
+                print(f"  ⚠ 컬렉션 슬라이드 {i+1} 업로드 실패: {e}")
 
     tts_failed = [lang for lang, p in expr_tts.items() if p is None]
     if tts_failed:
         print(f"  ⚠ TTS 실패 언어: {tts_failed}")
-    print(f"\n✅ Worker 완료: 릴스 {len(short_reel_urls)}개, 캐러셀 {len(recap_card_urls)}장")
+    print(f"\n✅ Worker 완료: 릴스 {len(short_reel_urls)}개, 캐러셀 {len(collection_card_urls)}장")
 
     return {
         "status": "ok",
         "slot": req.slot,
         "today": today,
-        "yesterday": yesterday,
         "topic": topic,
         "all_data": all_data,
-        "recap_topic": yest_topic,
-        "recap_data":  yest_all_data,
+        "collection_theme": coll_theme,
         "short_reel_urls": short_reel_urls,
-        "recap_card_urls": recap_card_urls,
-        "tts_failed": tts_failed,   # TTS 실패 언어 목록 (dispatch.py 알림용)
+        "collection_card_urls": collection_card_urls,
+        "tts_failed": tts_failed,
         "dry_run": False,
     }
 

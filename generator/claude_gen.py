@@ -1,4 +1,5 @@
 """Claude API로 회화 표현 생성"""
+from __future__ import annotations
 import json
 import os
 import anthropic
@@ -59,6 +60,7 @@ Rules:
 
 Return ONLY this JSON:
 {{
+  "korean_anchor": "한국인이 일상에서 자주 쓰는 짧은 한국어 표현 (3~8자). 이 외국어 표현이 자연스럽게 대응되는 상황. 예: '눈치 보인다', '어색하다', '대충 해', '좀 이따 봐'",
   "main_expression": "the {lc['name']} expression",{pronunciation_fields}
   "korean_phonetic": "한글 발음 (한국어 독자가 읽을 수 있는 한글 발음 표기, 예: Nice to meet you → 나이스 투 밋 유)",
   "korean_translation": "Korean translation",
@@ -116,3 +118,53 @@ def generate(lang: str, topic: dict, max_retries: int = 3) -> dict:
     print(f"  ✗ {lang} 재시도 초과, 중복 허용: {data['main_expression']!r}")
     history.add(lang, data["main_expression"])
     return data
+
+
+_COLLECTION_SYSTEM = """You are a language content creator for Korean learners.
+Generate relatable Korean everyday phrases with their natural equivalents in English, Chinese, and Japanese.
+Always respond with valid JSON only. No markdown, no extra text."""
+
+
+def generate_collection(theme: dict, n: int = 8) -> list[dict]:
+    """
+    테마 기반 한국어 표현 → EN/ZH/JA 비교 컬렉션 생성.
+    Returns: [{"korean_phrase": "...", "context": "...", "en": "...", "zh": "...", "ja": "..."}, ...]
+    """
+    prompt = f"""Generate {n} short Korean everyday phrases with their natural equivalents in English, Chinese, and Japanese.
+
+Theme: {theme['title_en']} ({theme['title_ko']})
+
+Rules:
+- Korean phrases must be short (2~8 chars), commonly used in daily conversation
+- Foreign expressions must be casual/natural, NOT textbook formal
+- Each phrase must be conceptually distinct from others in the list
+- context: 1~2 word situational hint in Korean (10자 이내)
+- Do NOT repeat similar meanings
+
+Return ONLY a JSON array of exactly {n} objects:
+[
+  {{
+    "korean_phrase": "대충 해",
+    "context": "귀찮을 때",
+    "en": "Just wing it",
+    "zh": "随便吧",
+    "ja": "なんとかなるよ"
+  }}
+]"""
+
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1200,
+        system=_COLLECTION_SYSTEM,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = message.content[0].text.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.strip()
+    items = json.loads(text)
+    if not isinstance(items, list):
+        raise ValueError(f"generate_collection: expected list, got {type(items)}")
+    return items[:n]

@@ -279,6 +279,50 @@ def post_recap_carousel(image_urls: list, topic: dict,
     return media_id
 
 
+def post_collection_carousel(image_urls: list, theme: dict) -> str:
+    """
+    컬렉션 캐러셀 (10장) 포스팅.
+    image_urls: [cover, slide_01..08, cta] 순서
+    theme: {"title_ko": "...", "title_en": "...", "emoji": "..."}
+    Returns: media_id
+    """
+    emoji      = theme.get("emoji", "📚")
+    title_ko   = theme.get("title_ko", "오늘의 표현 컬렉션")
+    title_en   = theme.get("title_en", "")
+
+    caption = "\n".join([
+        f"{emoji} {title_ko}",
+        f"{title_en}" if title_en else "",
+        "",
+        "💾 저장해두고 오늘 하나씩 써봐요!",
+        "",
+        "스와이프해서 8가지 표현 모두 확인하세요 👉",
+        "",
+        "어떤 표현이 제일 유용했나요? 댓글로 알려주세요 💬",
+        "팔로우하면 매일 새로운 표현이 올라와요 🔔",
+        "",
+        HASHTAGS,
+    ]).strip()
+
+    print("  → 컬렉션 캐러셀 이미지 컨테이너 생성 중...")
+    child_ids = []
+    for i, url in enumerate(image_urls):
+        if i > 0:
+            time.sleep(3)
+        cid = _create_image_container(url, is_carousel_item=True)
+        _wait_ready(cid)
+        child_ids.append(cid)
+        print(f"    ✓ 슬라이드 {i+1}/{len(image_urls)} 준비")
+
+    print("  → 컬렉션 캐러셀 컨테이너 생성 중...")
+    carousel_id = _create_carousel_container(child_ids, caption)
+    _wait_ready(carousel_id)
+    print("  → 컬렉션 캐러셀 게시 중...")
+    media_id = _publish(carousel_id)
+    print(f"  ✓ 컬렉션 캐러셀 완료! media_id: {media_id}")
+    return media_id
+
+
 def post_recap_reel(video_url: str, topic: dict,
                     all_data: dict[str, dict]) -> str:
     """

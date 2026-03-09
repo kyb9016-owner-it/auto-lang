@@ -123,6 +123,18 @@ HASHTAGS = (
     "#languagelearning #polyglot #langcard #랭카드스튜디오"
 )
 
+# ── 컬렉션 캐러셀 테마 (8일 주기 순환) ──────────────────────────────────────
+COLLECTION_THEMES = [
+    {"title_ko": "어색한 상황에서 쓰는 표현", "title_en": "Awkward Situations",     "emoji": "😬"},
+    {"title_ko": "카페에서 진짜 쓰는 표현",   "title_en": "Real Cafe Phrases",       "emoji": "☕"},
+    {"title_ko": "동의할 때 쓰는 표현 8가지", "title_en": "Ways to Agree",           "emoji": "👍"},
+    {"title_ko": "거절할 때 자연스러운 표현", "title_en": "Natural Refusals",        "emoji": "🙅"},
+    {"title_ko": "감정 표현 8가지",           "title_en": "Expressing Emotions",     "emoji": "💬"},
+    {"title_ko": "일상 공감 표현",            "title_en": "Relatable Daily Phrases", "emoji": "🌟"},
+    {"title_ko": "여행에서 꼭 필요한 표현",   "title_en": "Travel Must-Knows",       "emoji": "✈️"},
+    {"title_ko": "SNS에서 자주 쓰는 표현",    "title_en": "Social Media Phrases",    "emoji": "📱"},
+]
+
 # ── 기타 설정 ────────────────────────────────────────────────────────────────
 HISTORY_MAX = 200  # 언어별 최근 표현 보관 수 (3회/일 × 66일치)
 HISTORY_SIMILARITY_THRESHOLD = 0.65  # 퍼지 중복 감지 임계값 (0~1, 높을수록 엄격)

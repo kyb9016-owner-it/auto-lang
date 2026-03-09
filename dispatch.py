@@ -98,12 +98,13 @@ def dispatch(slot: str | None, dry_run: bool = False,
 
     topic        = data.get("topic", {})
     all_data     = data.get("all_data", {})
-    short_reel_urls = data.get("short_reel_urls", {})
-    recap_card_urls = data.get("recap_card_urls", [])
-    tts_failed      = data.get("tts_failed", [])
+    short_reel_urls      = data.get("short_reel_urls", {})
+    collection_card_urls = data.get("collection_card_urls", [])
+    collection_theme     = data.get("collection_theme", {})
+    tts_failed           = data.get("tts_failed", [])
 
     print(f"  ✓ Worker 완료: 릴스 {len(short_reel_urls)}개, "
-          f"캐러셀 {len(recap_card_urls)}장")
+          f"캐러셀 {len(collection_card_urls)}장")
 
     # TTS 실패 알림 (무음 릴스 업로드 예정임을 운영자에게 통보)
     if tts_failed:
@@ -147,19 +148,18 @@ def dispatch(slot: str | None, dry_run: bool = False,
     reel_count     = 0
     carousel_count = 0
 
-    # 8-a) 종합 캐러셀 (전날 복습) — 이벤트/단일 언어는 생략
-    if recap_card_urls and not custom_topic and not lang_filter:
+    # 8-a) 컬렉션 캐러셀 — 이벤트/단일 언어는 생략
+    if collection_card_urls and not custom_topic and not lang_filter:
         try:
-            recap_topic = data.get("recap_topic", topic)
-            recap_data  = data.get("recap_data",  all_data)
-            instagram.post_recap_carousel(recap_card_urls, recap_topic, recap_data)
+            instagram.post_collection_carousel(collection_card_urls, collection_theme)
             carousel_count += 1
             # ── [🔔 3] 캐러셀 완료 ──────────────────────────────────────────
-            notify.send(f"📸 <b>종합 캐러셀 업로드 완료</b> ✅\n(어제 복습 카드 {len(recap_card_urls)}장)")
+            theme_name = collection_theme.get("title_ko", "컬렉션")
+            notify.send(f"📸 <b>컬렉션 캐러셀 업로드 완료</b> ✅\n{theme_name} ({len(collection_card_urls)}장)")
             time.sleep(8)
         except Exception as e:
-            notify.send(f"⚠️ <b>종합 캐러셀 실패</b> (건너뜀)\n<code>{e}</code>")
-            print(f"  ⚠ 종합 캐러셀 포스팅 실패 (건너뜀): {e}")
+            notify.send(f"⚠️ <b>컬렉션 캐러셀 실패</b> (건너뜀)\n<code>{e}</code>")
+            print(f"  ⚠ 컬렉션 캐러셀 포스팅 실패 (건너뜀): {e}")
 
     # 8-b) 언어별 숏릴스 (en → zh → ja)
     from story_dispatcher import enqueue_story

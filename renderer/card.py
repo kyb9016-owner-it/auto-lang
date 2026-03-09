@@ -338,7 +338,11 @@ def render(data: dict, lang: str, topic, date_str: str = "", save: bool = True) 
     phonetic_text = data.get("korean_phonetic", "")
 
     def _expr_height() -> int:
-        h  = _th(draw, "오늘의 표현", label_font) + 12
+        _anchor = data.get("korean_anchor", "")
+        if _anchor:
+            h = _th(draw, _anchor, F.noto_kr(38)) + 16
+        else:
+            h = _th(draw, "오늘의 표현", label_font) + 12
         main_lines = _wrap(draw, data["main_expression"], main_font, USABLE_W, is_cjk)
         for ln in main_lines: h += _th(draw, ln, main_font) + 12
         h += 8
@@ -365,11 +369,14 @@ def render(data: dict, lang: str, topic, date_str: str = "", save: bool = True) 
     avail_h   = avail_bot - avail_top
     y = avail_top + max((avail_h - expr_h) // 2, 0)
 
-    # ── "오늘의 표현" 레이블 ──────────────────────────────────────────
-    lbl_bb = draw.textbbox((0, 0), "오늘의 표현", font=label_font)
+    # ── Korean Anchor 또는 "오늘의 표현" 레이블 ──────────────────────
+    anchor  = data.get("korean_anchor", "")
+    lbl_txt = anchor if anchor else "오늘의 표현"
+    lbl_f   = F.noto_kr(38) if anchor else label_font
+    lbl_bb  = draw.textbbox((0, 0), lbl_txt, font=lbl_f)
     draw.text(((CARD_W - (lbl_bb[2]-lbl_bb[0])) // 2, y - lbl_bb[1]),
-              "오늘의 표현", font=label_font, fill=sub_fill)
-    y += _th(draw, "오늘의 표현", label_font) + 12
+              lbl_txt, font=lbl_f, fill=sub_fill)
+    y += _th(draw, lbl_txt, lbl_f) + (16 if anchor else 12)
 
     # ── 메인 표현 (중앙 정렬) ─────────────────────────────────────────
     main_lines = _wrap(draw, data["main_expression"], main_font, USABLE_W, is_cjk)
@@ -1069,4 +1076,358 @@ def render_outro_frame(date_str: str) -> str:
     out_path = os.path.join(FRAMES_DIR, f"outro_{date_str}.png")
     img.convert("RGB").save(out_path, "PNG", optimize=True)
     print(f"  ✓ 아웃트로 프레임 저장: {out_path}")
+    return out_path
+
+
+# ── 컬렉션 캐러셀 렌더러 ──────────────────────────────────────────────────────
+
+_COLL_BG1 = (12, 15, 40)
+_COLL_BG2 = (28, 35, 75)
+_COLL_BG3 = (18, 22, 55)
+_COLL_GOLD   = (255, 213, 79, 255)
+_COLL_AMBER  = (255, 190, 60, 255)
+_COLL_WHITE  = (255, 255, 255, 255)
+_COLL_DIM    = (255, 255, 255, 160)
+_COLL_FAINT  = (255, 255, 255, 90)
+_COLL_DIV    = (255, 255, 255, 40)
+
+
+def _coll_base_img() -> tuple:
+    """컬렉션 공용 다크 배경 + 도트 오버레이. (img, draw) 반환."""
+    bg  = _gradient(CARD_W, CARD_H, _COLL_BG1, _COLL_BG2, _COLL_BG3)
+    img = bg.convert("RGBA")
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    d_ov  = ImageDraw.Draw(layer)
+    for x in range(0, CARD_W, 20):
+        for y in range(0, CARD_H, 20):
+            d_ov.ellipse([x-1, y-1, x+1, y+1], fill=(255, 255, 255, 12))
+    img  = Image.alpha_composite(img, layer)
+    return img, ImageDraw.Draw(img)
+
+
+def _coll_watermark(img: Image.Image) -> Image.Image:
+    draw = ImageDraw.Draw(img)
+    wm_font = F.noto_kr(22)
+    wm  = "@langcard.studio"
+    wmw = draw.textbbox((0, 0), wm, font=wm_font)[2]
+    draw.text(((CARD_W - wmw) // 2, CARD_H - 38), wm,
+              font=wm_font, fill=(255, 255, 255, 60))
+    return img
+
+
+def render_collection_cover(theme: dict, date_str: str) -> str:
+    """
+    컬렉션 캐러셀 커버 카드 (1/10).
+    theme: {"title_ko": "...", "title_en": "...", "emoji": "..."}
+    Returns: output/collection_cover_{date_str}.png
+    """
+    F.ensure_fonts()
+    img, draw = _coll_base_img()
+    cx = CARD_W // 2
+
+    # 상단 날짜 pill
+    dt = datetime.strptime(date_str, "%Y%m%d")
+    date_txt = f"{dt.month}월 {dt.day}일"
+    date_f   = F.noto_kr(30)
+    db = draw.textbbox((0, 0), date_txt, font=date_f)
+    dw = db[2]-db[0]; dh = db[3]-db[1]
+    px, py = 20, 10
+    dx0 = cx - dw//2 - px; dx1 = cx + dw//2 + px
+    dy0 = 80;               dy1 = dy0 + dh + py*2
+    pill = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(pill).rounded_rectangle([dx0, dy0, dx1, dy1], radius=16,
+                                           fill=(*_COLL_AMBER[:3], 60))
+    img = Image.alpha_composite(img, pill)
+    draw = ImageDraw.Draw(img)
+    draw.text((cx - dw//2, dy0 + py - db[1]), date_txt,
+              font=date_f, fill=_COLL_AMBER)
+
+    # 중앙 이모지 (큰 장식)
+    emoji_font_path = None
+    for _p in ["/System/Library/Fonts/Apple Color Emoji.ttc",
+               "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"]:
+        if os.path.exists(_p):
+            emoji_font_path = _p
+            break
+    if emoji_font_path:
+        try:
+            ef = ImageFont.truetype(emoji_font_path, 160)
+            el = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            eb = ImageDraw.Draw(el).textbbox((0, 0), theme["emoji"], font=ef)
+            ew = eb[2]-eb[0]
+            ImageDraw.Draw(el).text((cx - ew//2, 280 - eb[1]), theme["emoji"],
+                                    font=ef, embedded_color=True)
+            el.putalpha(el.getchannel("A").point(lambda p: int(p * 0.9)))
+            img = Image.alpha_composite(img, el)
+            draw = ImageDraw.Draw(img)
+        except Exception:
+            pass
+
+    # 테마 제목 KO (대형)
+    title_f = F.noto_kr(72)
+    tb = draw.textbbox((0, 0), theme["title_ko"], font=title_f)
+    tw = tb[2]-tb[0]
+    # 너무 길면 축소
+    t_font = title_f
+    for sz in range(72, 39, -4):
+        t_font = F.noto_kr(sz)
+        tb = draw.textbbox((0, 0), theme["title_ko"], font=t_font)
+        if (tb[2]-tb[0]) <= USABLE_W:
+            break
+    tb = draw.textbbox((0, 0), theme["title_ko"], font=t_font)
+    tw = tb[2]-tb[0]
+    draw.text((cx - tw//2, 520 - tb[1]), theme["title_ko"],
+              font=t_font, fill=_COLL_WHITE)
+
+    # 테마 제목 EN (작게)
+    en_f  = F.outfit(34)
+    eb2   = draw.textbbox((0, 0), theme["title_en"], font=en_f)
+    ew2   = eb2[2]-eb2[0]
+    draw.text((cx - ew2//2, 612 - eb2[1]), theme["title_en"],
+              font=en_f, fill=_COLL_DIM)
+
+    # 구분선
+    draw.line([(PAD*2, 680), (CARD_W-PAD*2, 680)], fill=_COLL_DIV, width=1)
+
+    # CTA
+    cta_f   = F.noto_kr(38)
+    cta_txt = "스와이프해서 저장하기"
+    cb      = draw.textbbox((0, 0), cta_txt, font=cta_f)
+    cw      = cb[2]-cb[0]
+    draw.text((cx - cw//2, 720 - cb[1]), cta_txt, font=cta_f, fill=_COLL_GOLD)
+
+    arr_f   = F.noto_kr(30)
+    arr_txt = "- - - - - -"
+    ab2     = draw.textbbox((0, 0), arr_txt, font=arr_f)
+    aw2     = ab2[2]-ab2[0]
+    draw.text((cx - aw2//2, 782 - ab2[1]), arr_txt,
+              font=arr_f, fill=(*_COLL_GOLD[:3], 140))
+
+    # 아이템 수 표시
+    cnt_f   = F.noto_kr(28)
+    cnt_txt = "표현 8가지"
+    ctb     = draw.textbbox((0, 0), cnt_txt, font=cnt_f)
+    ctw     = ctb[2]-ctb[0]
+    draw.text((cx - ctw//2, 840 - ctb[1]), cnt_txt,
+              font=cnt_f, fill=_COLL_FAINT)
+
+    img = _coll_watermark(img)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    out_path = os.path.join(OUTPUT_DIR, f"collection_cover_{date_str}.png")
+    img.convert("RGB").save(out_path, "PNG", optimize=True)
+    print(f"  ✓ 컬렉션 커버 저장: {out_path}")
+    return out_path
+
+
+def render_collection_slide(item: dict, index: int, total: int, date_str: str) -> str:
+    """
+    컬렉션 슬라이드 (2~9/10).
+    item: {"korean_phrase": "...", "context": "...", "en": "...", "zh": "...", "ja": "..."}
+    Returns: output/collection_slide_{index:02d}_{date_str}.png
+    """
+    F.ensure_fonts()
+    img, draw = _coll_base_img()
+    cx = CARD_W // 2
+
+    # 슬라이드 번호 pill (우상단)
+    num_txt  = f"{index}/{total}"
+    num_f    = F.outfit(28)
+    nb       = draw.textbbox((0, 0), num_txt, font=num_f)
+    nw       = nb[2]-nb[0]; nh = nb[3]-nb[1]
+    npx, npy = 16, 8
+    nx1      = CARD_W - PAD
+    nx0      = nx1 - nw - npx*2
+    ny0      = 68; ny1 = ny0 + nh + npy*2
+    num_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(num_layer).rounded_rectangle([nx0, ny0, nx1, ny1], radius=14,
+                                                fill=(*_COLL_AMBER[:3], 180))
+    img  = Image.alpha_composite(img, num_layer)
+    draw = ImageDraw.Draw(img)
+    draw.text((nx0 + npx, ny0 + npy - nb[1]), num_txt, font=num_f, fill=(20, 20, 50, 255))
+
+    # 상단 강조 바
+    bar = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(bar).rectangle([0, 0, CARD_W, 8], fill=(*_COLL_AMBER[:3], 255))
+    img  = Image.alpha_composite(img, bar)
+    draw = ImageDraw.Draw(img)
+
+    # ── 폰트 사전 결정 ─────────────────────────────────────────────────
+    kr_txt  = item.get("korean_phrase", "")
+    kr_f    = F.noto_kr(76)
+    for sz in range(76, 47, -4):
+        kr_f = F.noto_kr(sz)
+        kb_tmp = draw.textbbox((0, 0), kr_txt, font=kr_f)
+        if (kb_tmp[2]-kb_tmp[0]) <= USABLE_W:
+            break
+
+    ctx_txt = item.get("context", "")
+    ctx_f   = F.noto_kr(30)
+    flag_size = 44
+
+    _LANG_EXPRS = [
+        ("en", item.get("en", ""),  "🇺🇸", F.outfit(42)),
+        ("zh", item.get("zh", ""),  "🇨🇳", F.noto_sc(40)),
+        ("ja", item.get("ja", ""),  "🇯🇵", F.noto_jp(40)),
+    ]
+
+    # ── 전체 콘텐츠 높이 계산 → 세로 중앙 ────────────────────────────
+    kb    = draw.textbbox((0, 0), kr_txt, font=kr_f)
+    kr_h  = kb[3]-kb[1]
+    ctx_h = (_th(draw, ctx_txt, ctx_f) + 12) if ctx_txt else 0
+    div_h = 28   # 구분선 영역
+    row_h_list = []
+    for _, expr, _, ef in _LANG_EXPRS:
+        eb = draw.textbbox((0, 0), expr[:40], font=ef)
+        row_h_list.append(max(flag_size, eb[3]-eb[1]))
+    lang_total = sum(row_h_list) + 28 * (len(row_h_list) - 1)
+    total_h = kr_h + 18 + ctx_h + div_h + 16 + lang_total
+
+    avail_top = 140   # 번호 배지 아래
+    avail_bot = CARD_H - 50
+    y = avail_top + max((avail_bot - avail_top - total_h) // 2, 0)
+
+    # ── 한국어 문구 ────────────────────────────────────────────────────
+    kb  = draw.textbbox((0, 0), kr_txt, font=kr_f)
+    kw  = kb[2]-kb[0]
+    draw.text((cx - kw//2, y - kb[1]), kr_txt, font=kr_f, fill=_COLL_WHITE)
+    y += kr_h + 18
+
+    # ── 상황 힌트 ─────────────────────────────────────────────────────
+    if ctx_txt:
+        ctb = draw.textbbox((0, 0), ctx_txt, font=ctx_f)
+        ctw = ctb[2]-ctb[0]
+        draw.text((cx - ctw//2, y - ctb[1]), ctx_txt, font=ctx_f, fill=_COLL_DIM)
+        y += _th(draw, ctx_txt, ctx_f) + 12
+
+    # ── 구분선 ───────────────────────────────────────────────────────
+    draw.line([(PAD, y+10), (CARD_W-PAD, y+10)], fill=_COLL_DIV, width=1)
+    y += div_h
+
+    # ── 언어별 표현 (3행) ────────────────────────────────────────────
+    for idx, (lang_code, expr, flag_emoji, expr_f) in enumerate(_LANG_EXPRS):
+        row_h = row_h_list[idx]
+
+        # 국기 PNG
+        fp = F.flag_path(flag_emoji)
+        if fp:
+            fy = y + (row_h - flag_size) // 2
+            flag_img = Image.open(fp).convert("RGBA").resize(
+                (flag_size, flag_size), Image.LANCZOS)
+            img.paste(flag_img, (PAD, fy), flag_img)
+            draw = ImageDraw.Draw(img)
+
+        # 표현 텍스트
+        ex_x     = PAD + flag_size + 16
+        ex_max_w = CARD_W - ex_x - PAD
+        disp = expr
+        while _tw(draw, disp, expr_f) > ex_max_w and len(disp) > 4:
+            disp = disp[:-1]
+        if disp != expr:
+            disp = disp.rstrip(".,!？！…") + "…"
+        eb = draw.textbbox((0, 0), disp, font=expr_f)
+        eh = eb[3]-eb[1]
+        ty = y + (row_h - eh)//2 - eb[1]
+        draw.text((ex_x, ty), disp, font=expr_f, fill=_COLL_WHITE)
+
+        y += row_h + 28
+
+    img = _coll_watermark(img)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    out_path = os.path.join(OUTPUT_DIR, f"collection_slide_{index:02d}_{date_str}.png")
+    img.convert("RGB").save(out_path, "PNG", optimize=True)
+    print(f"  ✓ 컬렉션 슬라이드 저장: {out_path}")
+    return out_path
+
+
+def render_collection_cta(date_str: str) -> str:
+    """
+    컬렉션 캐러셀 CTA 슬라이드 (10/10).
+    Returns: output/collection_cta_{date_str}.png
+    """
+    F.ensure_fonts()
+    img, draw = _coll_base_img()
+    cx = CARD_W // 2
+
+    # 상단 바
+    bar = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(bar).rectangle([0, 0, CARD_W, 8], fill=(*_COLL_AMBER[:3], 255))
+    img  = Image.alpha_composite(img, bar)
+    draw = ImageDraw.Draw(img)
+
+    # 저장 아이콘 텍스트
+    icon_f   = F.noto_kr(100)
+    icon_txt = "💾"
+    try:
+        for _p in ["/System/Library/Fonts/Apple Color Emoji.ttc",
+                   "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"]:
+            if os.path.exists(_p):
+                ef = ImageFont.truetype(_p, 120)
+                el = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                eb = ImageDraw.Draw(el).textbbox((0, 0), icon_txt, font=ef)
+                ew = eb[2]-eb[0]
+                ImageDraw.Draw(el).text((cx - ew//2, 200 - eb[1]), icon_txt,
+                                        font=ef, embedded_color=True)
+                img = Image.alpha_composite(img, el)
+                draw = ImageDraw.Draw(img)
+                break
+    except Exception:
+        pass
+
+    # 메인 CTA 텍스트
+    m1_f   = F.noto_kr(62)
+    m1_txt = "저장해두고 써봐요!"
+    m1b    = draw.textbbox((0, 0), m1_txt, font=m1_f)
+    m1w    = m1b[2]-m1b[0]
+    draw.text((cx - m1w//2, 390 - m1b[1]), m1_txt, font=m1_f, fill=_COLL_GOLD)
+
+    m2_f   = F.noto_kr(38)
+    m2_txt = "매일 새로운 표현이 올라와요"
+    m2b    = draw.textbbox((0, 0), m2_txt, font=m2_f)
+    m2w    = m2b[2]-m2b[0]
+    draw.text((cx - m2w//2, 478 - m2b[1]), m2_txt, font=m2_f, fill=_COLL_DIM)
+
+    # 구분선
+    draw.line([(PAD*2, 560), (CARD_W-PAD*2, 560)], fill=_COLL_DIV, width=1)
+
+    # 팔로우 텍스트
+    f1_f   = F.noto_kr(46)
+    f1_txt = "팔로우하면 매일 받아볼 수 있어요"
+    f1b    = draw.textbbox((0, 0), f1_txt, font=f1_f)
+    f1w    = f1b[2]-f1b[0]
+    # 너무 길면 줄바꿈
+    if f1w > USABLE_W:
+        f1_f = F.noto_kr(38)
+        f1b  = draw.textbbox((0, 0), f1_txt, font=f1_f)
+        f1w  = f1b[2]-f1b[0]
+    draw.text((cx - f1w//2, 598 - f1b[1]), f1_txt, font=f1_f, fill=_COLL_WHITE)
+
+    # 계정 배지
+    acc_f   = F.outfit(46)
+    acc_txt = "@langcard.studio"
+    ab      = draw.textbbox((0, 0), acc_txt, font=acc_f)
+    aw      = ab[2]-ab[0]; ah = ab[3]-ab[1]
+    ax0 = cx - aw//2 - 28; ax1 = cx + aw//2 + 28
+    ay0 = 690;              ay1 = ay0 + ah + 28
+    acc_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(acc_layer).rounded_rectangle([ax0, ay0, ax1, ay1], radius=20,
+                                                fill=(*_COLL_GOLD[:3], 220))
+    img  = Image.alpha_composite(img, acc_layer)
+    draw = ImageDraw.Draw(img)
+    draw.text((ax0 + 28, ay0 + 14 - ab[1]), acc_txt,
+              font=acc_f, fill=(20, 20, 50, 255))
+
+    # 3개국어 힌트
+    hint_f   = F.noto_kr(30)
+    hint_txt = "🇺🇸 영어  🇨🇳 중국어  🇯🇵 일본어"
+    # 이모지 대신 텍스트로 처리 (이모지 렌더 이슈 방지)
+    hint_txt2 = "영어 · 중국어 · 일본어"
+    hb = draw.textbbox((0, 0), hint_txt2, font=hint_f)
+    hw = hb[2]-hb[0]
+    draw.text((cx - hw//2, 790 - hb[1]), hint_txt2, font=hint_f, fill=_COLL_FAINT)
+
+    img = _coll_watermark(img)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    out_path = os.path.join(OUTPUT_DIR, f"collection_cta_{date_str}.png")
+    img.convert("RGB").save(out_path, "PNG", optimize=True)
+    print(f"  ✓ 컬렉션 CTA 저장: {out_path}")
     return out_path
