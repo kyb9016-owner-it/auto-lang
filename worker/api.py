@@ -257,11 +257,16 @@ def run_job(req: JobRequest, creds=Security(_verify)):
             vocab_tts[lang] = tts_gen.generate_vocab(
                 all_data[lang].get("vocab", []), lang, today,
                 slot=req.slot or "default")
-            print(f"  ✓ {lang}: TTS 생성 완료")
         except Exception as e:
-            print(f"  ⚠ {lang} TTS 실패 (건너뜀): {e}")
+            print(f"  ⚠ {lang} TTS 예외 (건너뜀): {e}")
             expr_tts[lang]  = None
             vocab_tts[lang] = None
+
+        # 실제 성공 여부로 로그 분기
+        if expr_tts.get(lang):
+            print(f"  ✓ {lang}: TTS 생성 완료")
+        else:
+            print(f"  ⚠ {lang}: TTS 실패 — 무음 릴스로 진행")
 
     # ── Step 5: 숏릴스 MP4 ─────────────────────────────────────────────────
     print(f"\n[5/7] 숏릴스 생성")
@@ -404,6 +409,9 @@ def run_job(req: JobRequest, creds=Security(_verify)):
             except Exception as e:
                 print(f"  ⚠ 캐러셀 슬라이드 {i+1} 업로드 실패: {e}")
 
+    tts_failed = [lang for lang, p in expr_tts.items() if p is None]
+    if tts_failed:
+        print(f"  ⚠ TTS 실패 언어: {tts_failed}")
     print(f"\n✅ Worker 완료: 릴스 {len(short_reel_urls)}개, 캐러셀 {len(recap_card_urls)}장")
 
     return {
@@ -417,6 +425,7 @@ def run_job(req: JobRequest, creds=Security(_verify)):
         "recap_data":  yest_all_data,
         "short_reel_urls": short_reel_urls,
         "recap_card_urls": recap_card_urls,
+        "tts_failed": tts_failed,   # TTS 실패 언어 목록 (dispatch.py 알림용)
         "dry_run": False,
     }
 

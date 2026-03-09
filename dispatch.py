@@ -100,9 +100,19 @@ def dispatch(slot: str | None, dry_run: bool = False,
     all_data     = data.get("all_data", {})
     short_reel_urls = data.get("short_reel_urls", {})
     recap_card_urls = data.get("recap_card_urls", [])
+    tts_failed      = data.get("tts_failed", [])
 
     print(f"  ✓ Worker 완료: 릴스 {len(short_reel_urls)}개, "
           f"캐러셀 {len(recap_card_urls)}장")
+
+    # TTS 실패 알림 (무음 릴스 업로드 예정임을 운영자에게 통보)
+    if tts_failed:
+        flags = " ".join(_LANG_FLAG.get(l, l.upper()) for l in tts_failed)
+        notify.send(
+            f"⚠️ <b>{label} TTS 실패 — 무음 릴스</b>\n"
+            f"언어: {flags} ({', '.join(tts_failed)})\n"
+            f"음성 오류 / 재시도 필요 시 /{label} 재전송"
+        )
 
     # ── [🔔 2] Worker 완료 + 표현 미리보기 ──────────────────────────────────
     topic_text = ""

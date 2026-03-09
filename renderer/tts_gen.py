@@ -29,18 +29,25 @@ async def _gen_async(text: str, voice: str, out_path: str) -> None:
 
 
 def _generate(text: str, lang: str, out_path: str, slot: str = "default") -> bool:
-    """TTS 생성 공통 함수. 성공 여부 반환. 네트워크 오류 시 최대 3회 재시도."""
+    """TTS 생성 공통 함수. 성공 여부 반환.
+    - 1차: 슬롯 지정 음성으로 최대 3회 재시도
+    - 2차: 1차 전체 실패 시 default 음성으로 1회 폴백
+    """
     if not _HAS_EDGE_TTS:
         return False
     os.makedirs(TTS_DIR, exist_ok=True)
     voices = TTS_VOICES.get(lang, {})
     if isinstance(voices, dict):
-        voice = voices.get(slot) or voices.get("default", "en-US-JennyNeural")
+        primary_voice = voices.get(slot) or voices.get("default", "en-US-JennyNeural")
+        fallback_voice = voices.get("default", "en-US-JennyNeural")
     else:
-        voice = voices  # str이면 그대로 (하위호환)
+        primary_voice = voices
+        fallback_voice = voices
+
+    # 1차: 지정 음성으로 3회 시도
     for attempt in range(3):
         try:
-            asyncio.run(_gen_async(text, voice, out_path))
+            asyncio.run(_gen_async(text, primary_voice, out_path))
             size_kb = os.path.getsize(out_path) // 1024
             print(f"  ✓ TTS 생성: {os.path.basename(out_path)}  ({size_kb} KB)")
             return True
@@ -49,7 +56,19 @@ def _generate(text: str, lang: str, out_path: str, slot: str = "default") -> boo
                 print(f"  ↻ TTS 재시도 {attempt + 1}/2 ({lang}): {e}")
                 time.sleep(2)
             else:
-                print(f"  ⚠ TTS 생성 실패 ({lang}): {e}")
+                print(f"  ⚠ TTS 기본 음성 실패 ({lang}/{primary_voice}): {e}")
+
+    # 2차: 폴백 음성으로 1회 시도 (기본 음성과 다를 때만)
+    if fallback_voice != primary_voice:
+        try:
+            print(f"  ↻ TTS 폴백 음성 시도 ({lang}/{fallback_voice})")
+            asyncio.run(_gen_async(text, fallback_voice, out_path))
+            size_kb = os.path.getsize(out_path) // 1024
+            print(f"  ✓ TTS 폴백 성공: {os.path.basename(out_path)}  ({size_kb} KB)")
+            return True
+        except Exception as e:
+            print(f"  ⚠ TTS 폴백도 실패 ({lang}/{fallback_voice}): {e}")
+
     return False
 
 

@@ -78,7 +78,7 @@ TTS_VOICES = {
     "en": {
         "morning": "en-US-JennyNeural",   # 여성
         "lunch":   "en-US-GuyNeural",     # 남성 (차분)
-        "evening": "en-US-DavisNeural",   # 남성 (캐주얼)
+        "evening": "en-US-AriaNeural",    # 여성 (캐주얼) — DavisNeural 음성 불안정으로 교체
         "default": "en-US-JennyNeural",   # fallback
     },
     "zh": {
