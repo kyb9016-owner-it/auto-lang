@@ -292,14 +292,14 @@ def run_job(req: JobRequest, creds=Security(_verify)):
         except Exception as e:
             print(f"  ✗ {lang} 숏릴스 실패 (건너뜀): {e}")
 
-    # ── Step 6: 전날 카드 수집 (일반 슬롯만) ────────────────────────────────
+    # ── Step 6: 전날 카드 수집 (아침 슬롯만) ────────────────────────────────
     print(f"\n[6/7] 전날 종합 캐러셀 준비 (어제: {yesterday})")
     recap_pngs: list[str]             = []
     recap_meta: list[tuple[str, str]] = []   # (lang, suffix) — Cloudinary 업로드용
     yest_topic    = topic     # 초기값
     yest_all_data = all_data  # 초기값
 
-    if not req.custom_topic and len(langs) == len(LANGUAGES):
+    if not req.custom_topic and len(langs) == len(LANGUAGES) and req.slot == "morning":
         try:
             # ── 3개 슬롯 JSON 로드 ───────────────────────────────────────
             slot_data: dict[str, dict] = {}
@@ -367,7 +367,12 @@ def run_job(req: JobRequest, creds=Security(_verify)):
         except Exception as e:
             print(f"  ⚠ 전날 카드 탐색 실패 (건너뜀): {e}")
     else:
-        print(f"  → 이벤트/단일 언어 모드: 캐러셀 생략")
+        if req.custom_topic:
+            print(f"  → 이벤트 모드: 캐러셀 생략")
+        elif len(langs) != len(LANGUAGES):
+            print(f"  → 단일 언어 모드: 캐러셀 생략")
+        else:
+            print(f"  → {req.slot or 'daily'} 슬롯: 캐러셀은 morning 슬롯에서만 생성")
 
     # ── dry-run 종료 ─────────────────────────────────────────────────────────
     if req.dry_run:
