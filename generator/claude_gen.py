@@ -54,7 +54,7 @@ Rules:
 - NOT textbook/formal — use casual, authentic spoken language
 - Difficulty: beginner ~ intermediate
 - Use proper mixed case for English (e.g. "How have you been?" not "HOW HAVE YOU BEEN?")
-- MUST be different from these recently used expressions:
+- MUST be different in MEANING from these recently used expressions (not just wording):
 {history_str}
 
 Return ONLY this JSON:
@@ -96,8 +96,6 @@ def generate(lang: str, topic: dict, max_retries: int = 3) -> dict:
     표현 생성 후 히스토리 저장. dict 반환.
     중복 감지 시 최대 max_retries 회 재시도.
     """
-    recent = history.get_recent(lang)
-    recent_set = set(recent)
     data = {}
 
     for attempt in range(1, max_retries + 1):
@@ -105,7 +103,7 @@ def generate(lang: str, topic: dict, max_retries: int = 3) -> dict:
         data = _call_api(prompt)
         expr = data["main_expression"]
 
-        if expr not in recent_set:
+        if not history.is_duplicate(lang, expr):
             history.add(lang, expr)
             if attempt > 1:
                 print(f"  ↻ {lang} 재시도 {attempt}회 만에 새 표현: {expr}")

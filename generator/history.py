@@ -1,7 +1,9 @@
 """생성 히스토리 관리 — 중복 방지용 JSON 저장소"""
 import json
 import os
-from config import LANGUAGES, HISTORY_MAX
+import re
+from difflib import SequenceMatcher
+from config import LANGUAGES, HISTORY_MAX, HISTORY_SIMILARITY_THRESHOLD
 
 HISTORY_PATH = os.path.join(os.path.dirname(__file__), "..", "history.json")
 
@@ -18,10 +20,41 @@ def _save(data: dict) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def _normalize(text: str) -> str:
+    """소문자화 + 구두점 제거 + 공백 정규화 (유사도 비교용)"""
+    text = text.lower()
+    text = re.sub(r"[^\w\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def get_recent(lang: str) -> list[str]:
     """최근 HISTORY_MAX 개 표현 반환"""
     data = _load()
     return data.get(lang, [])[-HISTORY_MAX:]
+
+
+def is_duplicate(lang: str, expression: str) -> bool:
+    """
+    히스토리에 동일하거나 의미상 유사한 표현이 있으면 True.
+    - 정확한 문자열 일치: O(1)
+    - 유사도 체크: difflib.SequenceMatcher (임계값 HISTORY_SIMILARITY_THRESHOLD)
+    """
+    recent = get_recent(lang)
+    if not recent:
+        return False
+
+    # 1) 정확한 일치 (빠름)
+    if expression in set(recent):
+        return True
+
+    # 2) 유사도 체크 (퍼지 매칭)
+    norm_new = _normalize(expression)
+    for hist_expr in recent:
+        ratio = SequenceMatcher(None, norm_new, _normalize(hist_expr)).ratio()
+        if ratio >= HISTORY_SIMILARITY_THRESHOLD:
+            return True
+
+    return False
 
 
 def add(lang: str, expression: str) -> None:
