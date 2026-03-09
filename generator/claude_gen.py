@@ -128,7 +128,10 @@ Always respond with valid JSON only. No markdown, no extra text."""
 def generate_collection(theme: dict, n: int = 8) -> list[dict]:
     """
     테마 기반 한국어 표현 → EN/ZH/JA 비교 컬렉션 생성.
-    Returns: [{"korean_phrase": "...", "context": "...", "en": "...", "zh": "...", "ja": "..."}, ...]
+    Returns: [{"korean_phrase": "...", "context": "...",
+               "en": "...", "en_phonetic": "...(한글 발음)",
+               "zh": "...", "zh_phonetic": "...(pinyin)",
+               "ja": "...", "ja_phonetic": "...(romaji)"}, ...]
     """
     prompt = f"""Generate {n} short Korean everyday phrases with their natural equivalents in English, Chinese, and Japanese.
 
@@ -140,6 +143,9 @@ Rules:
 - Each phrase must be conceptually distinct from others in the list
 - context: 1~2 word situational hint in Korean (10자 이내)
 - Do NOT repeat similar meanings
+- en_phonetic: Korean phonetic reading of the English expression (한글 발음 표기, e.g. "저스트 윙 잇")
+- zh_phonetic: Pinyin with tone marks (e.g. "suí biàn ba")
+- ja_phonetic: Romaji (e.g. "nantoka naru yo")
 
 Return ONLY a JSON array of exactly {n} objects:
 [
@@ -147,14 +153,17 @@ Return ONLY a JSON array of exactly {n} objects:
     "korean_phrase": "대충 해",
     "context": "귀찮을 때",
     "en": "Just wing it",
+    "en_phonetic": "저스트 윙 잇",
     "zh": "随便吧",
-    "ja": "なんとかなるよ"
+    "zh_phonetic": "suí biàn ba",
+    "ja": "なんとかなるよ",
+    "ja_phonetic": "nantoka naru yo"
   }}
 ]"""
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1200,
+        max_tokens=2000,
         system=_COLLECTION_SYSTEM,
         messages=[{"role": "user", "content": prompt}],
     )

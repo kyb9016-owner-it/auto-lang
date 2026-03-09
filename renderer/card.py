@@ -1222,7 +1222,10 @@ def render_collection_cover(theme: dict, date_str: str) -> str:
 def render_collection_slide(item: dict, index: int, total: int, date_str: str) -> str:
     """
     컬렉션 슬라이드 (2~9/10).
-    item: {"korean_phrase": "...", "context": "...", "en": "...", "zh": "...", "ja": "..."}
+    item: {"korean_phrase": "...", "context": "...",
+           "en": "...", "en_phonetic": "...",
+           "zh": "...", "zh_phonetic": "...",
+           "ja": "...", "ja_phonetic": "..."}
     Returns: output/collection_slide_{index:02d}_{date_str}.png
     """
     F.ensure_fonts()
@@ -1262,12 +1265,13 @@ def render_collection_slide(item: dict, index: int, total: int, date_str: str) -
 
     ctx_txt = item.get("context", "")
     ctx_f   = F.noto_kr(30)
-    flag_size = 44
+    flag_size  = 44
+    phonetic_f = F.noto_kr(24)
 
     _LANG_EXPRS = [
-        ("en", item.get("en", ""),  "🇺🇸", F.outfit(42)),
-        ("zh", item.get("zh", ""),  "🇨🇳", F.noto_sc(40)),
-        ("ja", item.get("ja", ""),  "🇯🇵", F.noto_jp(40)),
+        ("en", item.get("en", ""), "🇺🇸", F.outfit(42),   item.get("en_phonetic", "")),
+        ("zh", item.get("zh", ""), "🇨🇳", F.noto_sc(40),  item.get("zh_phonetic", "")),
+        ("ja", item.get("ja", ""), "🇯🇵", F.noto_jp(40),  item.get("ja_phonetic", "")),
     ]
 
     # ── 전체 콘텐츠 높이 계산 → 세로 중앙 ────────────────────────────
@@ -1276,9 +1280,15 @@ def render_collection_slide(item: dict, index: int, total: int, date_str: str) -
     ctx_h = (_th(draw, ctx_txt, ctx_f) + 12) if ctx_txt else 0
     div_h = 28   # 구분선 영역
     row_h_list = []
-    for _, expr, _, ef in _LANG_EXPRS:
+    for _, expr, _, ef, phonetic in _LANG_EXPRS:
         eb = draw.textbbox((0, 0), expr[:40], font=ef)
-        row_h_list.append(max(flag_size, eb[3]-eb[1]))
+        expr_h = eb[3]-eb[1]
+        if phonetic:
+            ph = _th(draw, phonetic, phonetic_f)
+            content_h = expr_h + 5 + ph
+        else:
+            content_h = expr_h
+        row_h_list.append(max(flag_size, content_h))
     lang_total = sum(row_h_list) + 28 * (len(row_h_list) - 1)
     total_h = kr_h + 18 + ctx_h + div_h + 16 + lang_total
 
@@ -1304,7 +1314,7 @@ def render_collection_slide(item: dict, index: int, total: int, date_str: str) -
     y += div_h
 
     # ── 언어별 표현 (3행) ────────────────────────────────────────────
-    for idx, (lang_code, expr, flag_emoji, expr_f) in enumerate(_LANG_EXPRS):
+    for idx, (lang_code, expr, flag_emoji, expr_f, phonetic) in enumerate(_LANG_EXPRS):
         row_h = row_h_list[idx]
 
         # 국기 PNG
@@ -1316,7 +1326,7 @@ def render_collection_slide(item: dict, index: int, total: int, date_str: str) -
             img.paste(flag_img, (PAD, fy), flag_img)
             draw = ImageDraw.Draw(img)
 
-        # 표현 텍스트
+        # 표현 텍스트 + 발음 (세로 중앙 배치)
         ex_x     = PAD + flag_size + 16
         ex_max_w = CARD_W - ex_x - PAD
         disp = expr
@@ -1326,8 +1336,23 @@ def render_collection_slide(item: dict, index: int, total: int, date_str: str) -
             disp = disp.rstrip(".,!？！…") + "…"
         eb = draw.textbbox((0, 0), disp, font=expr_f)
         eh = eb[3]-eb[1]
-        ty = y + (row_h - eh)//2 - eb[1]
+
+        # phonetic 포함 전체 콘텐츠 높이로 수직 중앙 결정
+        if phonetic:
+            ph = _th(draw, phonetic, phonetic_f)
+            content_h = eh + 5 + ph
+        else:
+            content_h = eh
+        start_y = y + (row_h - content_h) // 2
+
+        ty = start_y - eb[1]
         draw.text((ex_x, ty), disp, font=expr_f, fill=_COLL_WHITE)
+
+        # 발음 텍스트 (표현 바로 아래, 흐리게)
+        if phonetic:
+            py = start_y + eh + 5
+            draw.text((ex_x, py), phonetic, font=phonetic_f,
+                      fill=(*_COLL_DIM[:3], 200))
 
         y += row_h + 28
 
