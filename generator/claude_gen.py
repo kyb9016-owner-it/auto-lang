@@ -143,9 +143,9 @@ Rules:
 - Each phrase must be conceptually distinct from others in the list
 - context: 1~2 word situational hint in Korean (10자 이내)
 - Do NOT repeat similar meanings
-- en_phonetic: Korean phonetic reading of the English expression (한글 발음 표기, e.g. "저스트 윙 잇")
-- zh_phonetic: Pinyin with tone marks (e.g. "suí biàn ba")
-- ja_phonetic: Romaji (e.g. "nantoka naru yo")
+- en_phonetic: 한글 발음 표기 (e.g. "저스트 윙 잇")
+- zh_phonetic: 한글 발음 표기 (e.g. "쑤이 비엔 바")
+- ja_phonetic: 한글 발음 표기 (e.g. "난토카 나루 요")
 
 Return ONLY a JSON array of exactly {n} objects:
 [
@@ -155,9 +155,9 @@ Return ONLY a JSON array of exactly {n} objects:
     "en": "Just wing it",
     "en_phonetic": "저스트 윙 잇",
     "zh": "随便吧",
-    "zh_phonetic": "suí biàn ba",
+    "zh_phonetic": "쑤이 비엔 바",
     "ja": "なんとかなるよ",
-    "ja_phonetic": "nantoka naru yo"
+    "ja_phonetic": "난토카 나루 요"
   }}
 ]"""
 
