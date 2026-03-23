@@ -109,9 +109,27 @@ def render_short(expr_path: str, vocab_path: str,
     """
     os.makedirs(FRAMES_DIR, exist_ok=True)
 
+    # 표현 TTS 두 번 반복 (사이 1초 무음)
+    expr_tts_2x = None
+    if expr_tts and os.path.exists(expr_tts):
+        expr_tts_2x = os.path.join(FRAMES_DIR, f"short_{lang}_{date_str}_expr_2x.mp3")
+        tts_dur = _get_audio_duration(expr_tts)
+        gap = 1.0  # 반복 사이 무음
+        total = tts_dur * 2 + gap
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-i", expr_tts, "-i", expr_tts,
+            "-filter_complex",
+            f"[0:a]apad=pad_dur={gap}[a0];[a0][1:a]concat=n=2:v=0:a=1[out]",
+            "-map", "[out]", "-c:a", "libmp3lame", "-b:a", "128k",
+            expr_tts_2x
+        ], capture_output=True, text=True)
+        if not os.path.exists(expr_tts_2x):
+            expr_tts_2x = expr_tts  # 실패 시 원본 사용
+
     # 오디오 길이 기반 슬라이드 지속시간 결정
-    # 표현카드: TTS 후 1.5초 읽기 여유 / 단어카드: TTS 후 1.0초 여유
-    expr_dur  = max(4.0, _get_audio_duration(expr_tts)  + 1.5) if expr_tts  else 4.5
+    _expr_audio = expr_tts_2x or expr_tts
+    expr_dur  = max(4.0, _get_audio_duration(_expr_audio) + 1.5) if _expr_audio else 4.5
     vocab_dur = max(5.0, _get_audio_duration(vocab_tts) + 1.0) if vocab_tts else 5.5
 
     segments: list[str] = []
@@ -132,7 +150,7 @@ def render_short(expr_path: str, vocab_path: str,
 
     seg_expr  = os.path.join(FRAMES_DIR, f"short_{lang}_{date_str}_seg_expr.mp4")
     seg_vocab = os.path.join(FRAMES_DIR, f"short_{lang}_{date_str}_seg_vocab.mp4")
-    _make_segment(padded_expr,  expr_tts,  expr_dur,  seg_expr)
+    _make_segment(padded_expr,  _expr_audio,  expr_dur,  seg_expr)
     _make_segment(padded_vocab, vocab_tts, vocab_dur, seg_vocab)
     segments += [seg_expr, seg_vocab]
 

@@ -32,27 +32,21 @@ BADGE_PAD_Y  = 11   # 배지 상하 내부 여백
 
 def _gradient(w: int, h: int, c1: tuple, c2: tuple,
               c3: Optional[tuple] = None) -> Image.Image:
-    img = Image.new("RGB", (w, h))
-    draw = ImageDraw.Draw(img)
+    import numpy as np
     if c3 is None:
-        for y in range(h):
-            r = c1[0] + (c2[0]-c1[0])*y//h
-            g = c1[1] + (c2[1]-c1[1])*y//h
-            b = c1[2] + (c2[2]-c1[2])*y//h
-            draw.line([(0,y),(w,y)], fill=(r,g,b))
+        t = np.linspace(0, 1, h, dtype=np.float32)[:, None]
+        arr = (1 - t) * np.array(c1, dtype=np.float32) + t * np.array(c2, dtype=np.float32)
     else:
-        half = h//2
-        for y in range(half):
-            r = c1[0]+(c2[0]-c1[0])*y//half
-            g = c1[1]+(c2[1]-c1[1])*y//half
-            b = c1[2]+(c2[2]-c1[2])*y//half
-            draw.line([(0,y),(w,y)], fill=(r,g,b))
-        for y in range(h-half):
-            r = c2[0]+(c3[0]-c2[0])*y//(h-half)
-            g = c2[1]+(c3[1]-c2[1])*y//(h-half)
-            b = c2[2]+(c3[2]-c2[2])*y//(h-half)
-            draw.line([(0,half+y),(w,half+y)], fill=(r,g,b))
-    return img
+        half = h // 2
+        t1 = np.linspace(0, 1, half, dtype=np.float32)[:, None]
+        top = (1 - t1) * np.array(c1, dtype=np.float32) + t1 * np.array(c2, dtype=np.float32)
+        t2 = np.linspace(0, 1, h - half, dtype=np.float32)[:, None]
+        bot = (1 - t2) * np.array(c2, dtype=np.float32) + t2 * np.array(c3, dtype=np.float32)
+        arr = np.concatenate([top, bot], axis=0)
+    arr = np.clip(arr + np.random.uniform(-0.5, 0.5, arr.shape).astype(np.float32), 0, 255)
+    row = np.round(arr).astype(np.uint8)
+    pixels = np.broadcast_to(row[:, None, :], (h, w, 3)).copy()
+    return Image.fromarray(pixels, "RGB")
 
 
 def _dot_overlay(img: Image.Image, text_main: tuple) -> Image.Image:
@@ -329,7 +323,7 @@ def render(data: dict, lang: str, topic, date_str: str = "", save: bool = True) 
     main_font, _  = _fit_font(draw, data["main_expression"],
                                font_fn, USABLE_W, start=88, stop=40)
     label_font    = F.noto_kr(28)
-    phonetic_font = F.noto_kr(26)
+    phonetic_font = F.noto_kr(30)
     pron_font     = F.noto_kr(34)
     ko_font       = F.noto_kr(50)
     bonus_font    = font_fn(38)
@@ -337,110 +331,139 @@ def render(data: dict, lang: str, topic, date_str: str = "", save: bool = True) 
 
     phonetic_text = data.get("korean_phonetic", "")
 
-    def _expr_height() -> int:
-        _anchor = data.get("korean_anchor", "")
-        if _anchor:
-            h = _th(draw, _anchor, F.noto_kr(38)) + 16
-        else:
-            h = _th(draw, "오늘의 표현", label_font) + 12
-        main_lines = _wrap(draw, data["main_expression"], main_font, USABLE_W, is_cjk)
-        for ln in main_lines: h += _th(draw, ln, main_font) + 12
-        h += 8
-        # 한글 음차
-        if phonetic_text:
-            h += _th(draw, phonetic_text, phonetic_font) + 10
-        if lc["has_pronunciation"] and data.get("pronunciation"):
-            h += _th(draw, data["pronunciation"], pron_font) + 10
-        bb = draw.textbbox((0,0), data["korean_translation"], font=ko_font)
-        h += (bb[3]-bb[1]) + 14*2 + 14   # pill
-        h += 32   # 구분선
-        bonus_lines = _wrap(draw, data.get("bonus_expression",""), bonus_font, USABLE_W, is_cjk)
-        for ln in bonus_lines: h += _th(draw, ln, bonus_font) + 8
-        if lc["has_pronunciation"] and data.get("bonus_pronunciation"):
-            h += _th(draw, data["bonus_pronunciation"], F.noto_kr(28)) + 6
-        bko = data.get("bonus_korean","")
-        if bko: h += _th(draw, bko, bko_font)
-        return h
-
-    # 표현 콘텐츠만 카드 세로 중앙 배치
-    expr_h    = _expr_height()
-    avail_top = BADGE_Y + BADGE_H   # y=112
-    avail_bot = CARD_H - 50         # y=1030
-    avail_h   = avail_bot - avail_top
-    y = avail_top + max((avail_h - expr_h) // 2, 0)
-
-    # ── Korean Anchor 또는 "오늘의 표현" 레이블 ──────────────────────
+    # ── Korean Anchor — 배지 바로 아래 고정 ────────────────────────────
     anchor  = data.get("korean_anchor", "")
     lbl_txt = anchor if anchor else "오늘의 표현"
-    lbl_f   = F.noto_kr(38) if anchor else label_font
+    lbl_f   = F.noto_kr(34) if anchor else label_font
+    anchor_y = BADGE_Y + BADGE_H + 24
     lbl_bb  = draw.textbbox((0, 0), lbl_txt, font=lbl_f)
-    draw.text(((CARD_W - (lbl_bb[2]-lbl_bb[0])) // 2, y - lbl_bb[1]),
+    draw.text(((CARD_W - (lbl_bb[2]-lbl_bb[0])) // 2, anchor_y - lbl_bb[1]),
               lbl_txt, font=lbl_f, fill=sub_fill)
-    y += _th(draw, lbl_txt, lbl_f) + (16 if anchor else 12)
 
-    # ── 메인 표현 (중앙 정렬) ─────────────────────────────────────────
-    main_lines = _wrap(draw, data["main_expression"], main_font, USABLE_W, is_cjk)
-    for line in main_lines:
-        lw = _tw(draw, line, main_font)
-        draw.text(((CARD_W - lw) // 2, y), line, font=main_font, fill=main_fill)
-        y += _th(draw, line, main_font) + 12
-    y += 8
+    # ── 메인 콘텐츠 높이 계산 (anchor 제외) ──────────────────────────
+    ko_lines = _wrap(draw, data["korean_translation"], ko_font, USABLE_W - 56, True)
+    def _content_height() -> int:
+        h = 0
+        # 한국어 번역 pill
+        for ln in ko_lines:
+            h += _th(draw, ln, ko_font) + 6
+        h += 32 + 20   # pill 패딩 + 아래 여백
+        # 영어 메인 표현
+        main_lines = _wrap(draw, data["main_expression"], main_font, USABLE_W, is_cjk)
+        for ln in main_lines: h += _th(draw, ln, main_font) + 14
+        h += 10
+        # 한글 음차
+        if phonetic_text:
+            for ln in _wrap(draw, phonetic_text, phonetic_font, USABLE_W, True):
+                h += _th(draw, ln, phonetic_font) + 6
+            h += 10
+        # 발음 (중/일)
+        if lc["has_pronunciation"] and data.get("pronunciation"):
+            h += _th(draw, data["pronunciation"], pron_font) + 14
+        return h
 
-    # ── 한글 음차 발음 (중앙) ─────────────────────────────────────────
-    if phonetic_text:
-        pt_display = f"🔊 {phonetic_text}"
-        # 🔊 이모지 없이 텍스트만 (이모지 렌더 복잡)
-        pt_display = phonetic_text
-        pw = _tw(draw, pt_display, phonetic_font)
-        draw.text(((CARD_W - pw) // 2, y), pt_display,
-                  font=phonetic_font, fill=phonetic_fill)
-        y += _th(draw, pt_display, phonetic_font) + 10
+    content_h = _content_height()
+    avail_top = anchor_y + _th(draw, lbl_txt, lbl_f) + 40
+    avail_bot = CARD_H - 50
+    avail_h   = avail_bot - avail_top
+    golden_center = avail_top + int(avail_h * 0.38)
+    y = max(golden_center - content_h // 2, avail_top)
 
-    # ── 발음 (중/일, 중앙) ───────────────────────────────────────────
-    if lc["has_pronunciation"] and data.get("pronunciation"):
-        pt = data["pronunciation"]
-        pw = _tw(draw, pt, pron_font)
-        draw.text(((CARD_W - pw) // 2, y), pt, font=pron_font, fill=sub_fill)
-        y += _th(draw, pt, pron_font) + 10
-
-    # ── 한국어 번역 pill (중앙) ───────────────────────────────────────
-    ko_text = data["korean_translation"]
-    bb = draw.textbbox((0, 0), ko_text, font=ko_font)
-    ktw = bb[2] - bb[0]; kth = bb[3] - bb[1]
+    # ── 1) 한국어 번역 pill (중앙, 줄바꿈 지원) ─────────────────────
     kpx, kpy = 28, 14
-    kx0 = cx - ktw//2 - kpx; kx1 = cx + ktw//2 + kpx
-    ky1 = y + kth + kpy * 2
+    ko_total_h = sum(_th(draw, ln, ko_font) + 6 for ln in ko_lines) - 6
+    pill_h = ko_total_h + kpy * 2
+    # pill 너비 = 가장 긴 줄 기준
+    ko_max_w = max(_tw(draw, ln, ko_font) for ln in ko_lines)
+    kx0 = cx - ko_max_w//2 - kpx; kx1 = cx + ko_max_w//2 + kpx
+    ky1 = y + pill_h
     layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ImageDraw.Draw(layer).rounded_rectangle([kx0, y, kx1, ky1], radius=14,
                                              fill=theme["kr_badge_bg"])
     img = Image.alpha_composite(img, layer)
     draw = ImageDraw.Draw(img)
-    draw.text((cx - ktw//2, y + kpy - bb[1]), ko_text, font=ko_font, fill=main_fill)
-    y = ky1 + 14
+    ty = y + kpy
+    for ln in ko_lines:
+        lw = _tw(draw, ln, ko_font)
+        bb = draw.textbbox((0, 0), ln, font=ko_font)
+        draw.text(((CARD_W - lw) // 2, ty - bb[1]), ln, font=ko_font, fill=main_fill)
+        ty += _th(draw, ln, ko_font) + 6
+    y = ky1 + 20
 
-    # ── 구분선 ───────────────────────────────────────────────────────
-    div_color = (*ts[:3], ts[3]//2 if len(ts)>3 else 60)
-    draw.line([(PAD, y), (CARD_W-PAD, y)], fill=div_color, width=1)
-    y += 18
+    # ── 2) 영어 메인 표현 (중앙 정렬) ────────────────────────────────
+    main_lines = _wrap(draw, data["main_expression"], main_font, USABLE_W, is_cjk)
+    for line in main_lines:
+        lw = _tw(draw, line, main_font)
+        draw.text(((CARD_W - lw) // 2, y), line, font=main_font, fill=main_fill)
+        y += _th(draw, line, main_font) + 14
+    y += 10
 
-    # ── 보너스 표현 (중앙) ───────────────────────────────────────────
+    # ── 3) 한글 음차 발음 (중앙, 줄바꿈 지원) ────────────────────────
+    if phonetic_text:
+        ph_lines = _wrap(draw, phonetic_text, phonetic_font, USABLE_W, True)
+        for ln in ph_lines:
+            pw = _tw(draw, ln, phonetic_font)
+            draw.text(((CARD_W - pw) // 2, y), ln,
+                      font=phonetic_font, fill=phonetic_fill)
+            y += _th(draw, ln, phonetic_font) + 6
+        y += 10
+
+    # ── 4) 발음 (중/일, 중앙) ────────────────────────────────────────
+    if lc["has_pronunciation"] and data.get("pronunciation"):
+        pt = data["pronunciation"]
+        pw = _tw(draw, pt, pron_font)
+        draw.text(((CARD_W - pw) // 2, y), pt, font=pron_font, fill=sub_fill)
+        y += _th(draw, pt, pron_font) + 14
+
+    # ── 보너스 표현 — 하단 고정 ────────────────────────────────────────
+    bonus_label_font = F.noto_kr(22)
+    bonus_label = "보너스 표현"
+    bph_font = F.noto_kr(24)
+
+    # 보너스 블록 높이 계산
+    bonus_block_h = _th(draw, bonus_label, bonus_label_font) + 16
     bonus_lines = _wrap(draw, data.get("bonus_expression",""), bonus_font, USABLE_W, is_cjk)
-    for line in bonus_lines:
-        lw = _tw(draw, line, bonus_font)
-        draw.text(((CARD_W-lw)//2, y), line, font=bonus_font, fill=main_fill)
-        y += _th(draw, line, bonus_font) + 8
-
-    if lc["has_pronunciation"] and data.get("bonus_pronunciation"):
-        bp_font = F.noto_kr(28)
-        bp = data["bonus_pronunciation"]
-        bpw = _tw(draw, bp, bp_font)
-        draw.text(((CARD_W-bpw)//2, y), bp, font=bp_font, fill=sub_fill)
-        y += _th(draw, bp, bp_font) + 6
-
+    for ln in bonus_lines: bonus_block_h += _th(draw, ln, bonus_font) + 8
+    bonus_phonetic = data.get("bonus_korean_phonetic", "")
+    if bonus_phonetic:
+        for ln in _wrap(draw, bonus_phonetic, bph_font, USABLE_W, True):
+            bonus_block_h += _th(draw, ln, bph_font) + 6
+        bonus_block_h += 4
     bko = data.get("bonus_korean","")
     if bko:
-        bkow = _tw(draw, bko, bko_font)
-        draw.text(((CARD_W-bkow)//2, y), bko, font=bko_font, fill=sub_fill)
+        for ln in _wrap(draw, bko, bko_font, USABLE_W, True):
+            bonus_block_h += _th(draw, ln, bko_font) + 6
+
+    by = CARD_H - 60 - bonus_block_h   # 워터마크 위 여백 확보
+
+    # "보너스 표현" 레이블
+    blw = _tw(draw, bonus_label, bonus_label_font)
+    draw.text(((CARD_W - blw) // 2, by), bonus_label,
+              font=bonus_label_font, fill=sub_fill)
+    by += _th(draw, bonus_label, bonus_label_font) + 16
+
+    # 보너스 한국어 (먼저)
+    if bko:
+        bko_lines = _wrap(draw, bko, bko_font, USABLE_W, True)
+        for ln in bko_lines:
+            bkow = _tw(draw, ln, bko_font)
+            draw.text(((CARD_W-bkow)//2, by), ln, font=bko_font, fill=main_fill)
+            by += _th(draw, ln, bko_font) + 6
+
+    # 보너스 영어 표현
+    for line in bonus_lines:
+        lw = _tw(draw, line, bonus_font)
+        draw.text(((CARD_W-lw)//2, by), line, font=bonus_font, fill=main_fill)
+        by += _th(draw, line, bonus_font) + 8
+
+    # 보너스 한글 발음
+    if bonus_phonetic:
+        bph_lines = _wrap(draw, bonus_phonetic, bph_font, USABLE_W, True)
+        for ln in bph_lines:
+            bphw = _tw(draw, ln, bph_font)
+            draw.text(((CARD_W-bphw)//2, by), ln,
+                      font=bph_font, fill=phonetic_fill)
+            by += _th(draw, ln, bph_font) + 6
 
     # ── 워터마크 ─────────────────────────────────────────────────────
     wm_font = F.noto_kr(22)
@@ -520,9 +543,15 @@ def render_vocab(data: dict, lang: str, topic, date_str: str = "", save: bool = 
     lbl_font     = F.noto_kr(28)
     item_gap     = 44
 
-    # ── 높이 측정 → 세로 중앙 ────────────────────────────────────────
+    # ── "오늘의 단어" 레이블 — 배지 바로 아래 고정 ─────────────────────
+    label_y = BADGE_Y + BADGE_H + 24
+    lbl_bb = draw.textbbox((0,0), "오늘의 단어", font=lbl_font)
+    draw.text(((CARD_W - (lbl_bb[2]-lbl_bb[0])) // 2, label_y - lbl_bb[1]),
+              "오늘의 단어", font=lbl_font, fill=sub_fill)
+
+    # ── 높이 측정 → 황금비 배치 (레이블 제외) ──────────────────────────
     def _vocab_block_h() -> int:
-        h = _th(draw, "오늘의 단어", lbl_font) + 28
+        h = 0
         for item in vocab[:3]:
             word = item.get("word","")
             mean = item.get("meaning","")
@@ -538,15 +567,11 @@ def render_vocab(data: dict, lang: str, topic, date_str: str = "", save: bool = 
         return h - item_gap
 
     block_h   = _vocab_block_h()
-    avail_top = BADGE_Y + BADGE_H
+    avail_top = label_y + _th(draw, "오늘의 단어", lbl_font) + 40
     avail_bot = CARD_H - 50
-    vy = avail_top + max((avail_bot - avail_top - block_h) // 2, 0)
-
-    # ── "오늘의 단어" 레이블 (중앙) ─────────────────────────────────
-    lbl_bb = draw.textbbox((0,0), "오늘의 단어", font=lbl_font)
-    draw.text(((CARD_W - (lbl_bb[2]-lbl_bb[0])) // 2, vy - lbl_bb[1]),
-              "오늘의 단어", font=lbl_font, fill=sub_fill)
-    vy += _th(draw, "오늘의 단어", lbl_font) + 28
+    avail_h   = avail_bot - avail_top
+    golden_center = avail_top + int(avail_h * 0.38)
+    vy = max(golden_center - block_h // 2, avail_top)
 
     # ── 단어 항목 ────────────────────────────────────────────────────
     for i, item in enumerate(vocab[:3]):

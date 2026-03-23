@@ -35,7 +35,7 @@ def upload(image_path: str, lang: str, slot_or_label: str,
         resource_type="image",
         format="jpg",
         quality="auto:good",
-        transformation=[{"width": 1080, "height": 1080, "crop": "limit"}],
+        transformation=[{"width": 1080, "height": 1350, "crop": "limit"}],
     )
 
     url = result["secure_url"]

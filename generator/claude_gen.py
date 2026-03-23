@@ -60,13 +60,14 @@ Rules:
 
 Return ONLY this JSON:
 {{
-  "korean_anchor": "한국인이 일상에서 자주 쓰는 짧은 한국어 표현 (3~8자). 이 외국어 표현이 자연스럽게 대응되는 상황. 예: '눈치 보인다', '어색하다', '대충 해', '좀 이따 봐'",
+  "korean_anchor": "이 표현을 쓰는 상황을 짧게 설명 (3~8자, ~할 때/~하는 상황). 예: '처음 만났을 때', '길 물어볼 때', '약속 잡을 때', '고마울 때'",
   "main_expression": "the {lc['name']} expression",{pronunciation_fields}
   "korean_phonetic": "한글 발음 (한국어 독자가 읽을 수 있는 한글 발음 표기, 예: Nice to meet you → 나이스 투 밋 유)",
   "korean_translation": "Korean translation",
   "context": "짧은 상황 설명 (15자 이내)",
   "bonus_expression": "a related bonus expression in {lc['name']}",
   "bonus_korean": "Korean translation of the bonus expression",
+  "bonus_korean_phonetic": "bonus_expression의 한글 발음 표기 (예: All good things, I hope! → 올 굿 씽스, 아이 홉!)",
   "vocab": [
     {{"word": "word1 in {lc['name']}", "meaning": "Korean meaning", "pronunciation": "romanization if needed else null", "korean_phonetic": "한글 발음"}},
     {{"word": "word2 in {lc['name']}", "meaning": "Korean meaning", "pronunciation": "romanization if needed else null", "korean_phonetic": "한글 발음"}},
