@@ -15,11 +15,11 @@ TTS_DIR    = os.path.join(OUTPUT_DIR, "tts")
 # ── 유틸 ────────────────────────────────────────────────────────────────────
 
 def _pad_to_9_16(src: str, dst: str) -> None:
-    """1080×1080 카드를 1080×1920으로 패딩 (짙은 배경)"""
+    """카드 이미지를 1080×1920으로 스케일+패딩 (꽉 차게)"""
     cmd = [
         "ffmpeg", "-y", "-i", src,
-        "-vf", "scale=1080:1080:force_original_aspect_ratio=decrease,"
-               "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=0x1a1040",
+        "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,"
+               "crop=1080:1920",
         dst, "-loglevel", "error"
     ]
     subprocess.run(cmd, check=True)
