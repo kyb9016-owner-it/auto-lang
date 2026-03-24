@@ -65,7 +65,9 @@
     "I'm kind of a regular here.",
     "I don't think we've been introduced — I'm Alex!",
     "I'm with the marketing team — just started last week!",
-    "I'm actually a friend of Jake's — we went to school together."
+    "I'm actually a friend of Jake's — we went to school together.",
+    "I'm actually here with a friend — do you know Jamie?",
+    "Can you do any better on the price?"
   ],
   "zh": [
     "早上好！今天天气不错吧？",
@@ -118,7 +120,9 @@
     "幸会幸会！",
     "第一次见面，请多关照！",
     "哇，好巧啊，在这儿碰到你！",
-    "哎，你还记得我吗？好久不联系了！"
+    "哎，你还记得我吗？好久不联系了！",
+    "我叫小李，你呢？",
+    "我想退货，可以吗？"
   ],
   "ja": [
     "おはようございます！今日もよろしくお願いします。",
@@ -169,6 +173,8 @@
     "久しぶりじゃん！全然連絡なかったね！",
     "あれ、前に会ったことあるよね？",
     "久しぶりに連絡してみた！元気？",
-    "急に連絡してごめんね、元気にしてる？"
+    "急に連絡してごめんね、元気にしてる？",
+    "最近どこかで見かけたけど、忙しそうだったね。",
+    "これ、返品できますか？"
   ]
 }
