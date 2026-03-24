@@ -32,6 +32,13 @@ TOPIC_CONFIG = {
         "emoji": "✈️",
         "theme_slot": "evening",
     },
+    3: {
+        "topic_ko": "줄임말 & 슬랭",
+        "topic_en": "Abbreviations & Slang",
+        "badge": "SLANG",
+        "emoji": "🔥",
+        "theme_slot": "evening",
+    },
 }
 
 

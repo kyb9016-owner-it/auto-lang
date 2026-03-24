@@ -16,6 +16,17 @@ on:
           - morning
           - lunch
           - evening
+      topic:
+        description: "주제 강제 지정 (비워두면 슬롯 기반 자동)"
+        required: false
+        default: ""
+        type: choice
+        options:
+          - ""
+          - greetings
+          - cafe
+          - travel
+          - slang
       dry_run:
         description: "Dry run (카드 생성만, 업로드 안 함)"
         required: false
@@ -69,11 +80,11 @@ jobs:
           INSTAGRAM_BUSINESS_ID:      ${{ secrets.INSTAGRAM_BUSINESS_ID }}
         run: |
           DRY="${{ github.event.inputs.dry_run }}"
-          if [ "$DRY" = "true" ]; then
-            python main.py --slot ${{ steps.slot.outputs.slot }} --dry-run
-          else
-            python main.py --slot ${{ steps.slot.outputs.slot }}
-          fi
+          TOPIC="${{ github.event.inputs.topic }}"
+          CMD="python main.py --slot ${{ steps.slot.outputs.slot }}"
+          if [ -n "$TOPIC" ]; then CMD="$CMD --topic $TOPIC"; fi
+          if [ "$DRY" = "true" ]; then CMD="$CMD --dry-run"; fi
+          $CMD
 
       - name: Commit updated history
         run: |

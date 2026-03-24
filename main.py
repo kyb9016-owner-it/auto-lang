@@ -41,6 +41,7 @@ _TOPIC_MAP = {
     "greetings": 0,
     "cafe":      1,
     "travel":    2,
+    "slang":     3,
 }
 
 
