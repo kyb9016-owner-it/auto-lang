@@ -23,12 +23,12 @@ def _pad_to_9_16(src: str, dst: str) -> None:
     except Exception:
         bot_color = "000000"
 
-    # 카드를 상단 정렬(y=0), 아래쪽만 하단 색상으로 채움
+    # 카드를 세로 중앙 배치, 위아래 패딩
     cmd = [
         "ffmpeg", "-y", "-i", src,
         "-vf",
         f"scale=1080:-2:flags=lanczos,"
-        f"pad=1080:1920:0:0:color=0x{bot_color}",
+        f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=0x{bot_color}",
         dst, "-loglevel", "error"
     ]
     subprocess.run(cmd, check=True)
