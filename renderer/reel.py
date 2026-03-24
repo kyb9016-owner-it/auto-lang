@@ -15,12 +15,20 @@ TTS_DIR    = os.path.join(OUTPUT_DIR, "tts")
 # ── 유틸 ────────────────────────────────────────────────────────────────────
 
 def _pad_to_9_16(src: str, dst: str) -> None:
-    """카드 이미지를 1080×1920으로 스케일+패딩 (고품질 리샘플링)"""
+    """카드 이미지(1080×1350)를 1080×1920으로 — 카드 하단 색상으로 아래 패딩."""
+    from PIL import Image
+    try:
+        img = Image.open(src).convert("RGB")
+        bot_color = '%02x%02x%02x' % img.getpixel((img.width // 2, img.height - 3))
+    except Exception:
+        bot_color = "000000"
+
+    # 카드를 상단 정렬(y=0), 아래쪽만 하단 색상으로 채움
     cmd = [
         "ffmpeg", "-y", "-i", src,
-        "-vf", "scale=1080:1920:force_original_aspect_ratio=increase:"
-               "flags=lanczos,"
-               "crop=1080:1920",
+        "-vf",
+        f"scale=1080:-2:flags=lanczos,"
+        f"pad=1080:1920:0:0:color=0x{bot_color}",
         dst, "-loglevel", "error"
     ]
     subprocess.run(cmd, check=True)
