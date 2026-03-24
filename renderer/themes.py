@@ -89,5 +89,9 @@ CARD_THEMES = {
 
 CARD_W = 1080
 CARD_H = 1350
+
+# 릴스용 고해상도 (렌더링 시 2배로 그려 다운스케일 → 선명)
+REEL_W = 1080
+REEL_H = 1920
 PAD = 72
 USABLE_W = CARD_W - PAD * 2

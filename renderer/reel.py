@@ -15,10 +15,11 @@ TTS_DIR    = os.path.join(OUTPUT_DIR, "tts")
 # ── 유틸 ────────────────────────────────────────────────────────────────────
 
 def _pad_to_9_16(src: str, dst: str) -> None:
-    """카드 이미지를 1080×1920으로 스케일+패딩 (꽉 차게)"""
+    """카드 이미지를 1080×1920으로 스케일+패딩 (고품질 리샘플링)"""
     cmd = [
         "ffmpeg", "-y", "-i", src,
-        "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,"
+        "-vf", "scale=1080:1920:force_original_aspect_ratio=increase:"
+               "flags=lanczos,"
                "crop=1080:1920",
         dst, "-loglevel", "error"
     ]
@@ -51,7 +52,7 @@ def _make_segment(padded_png: str, audio_path: Optional[str],
                      "-filter_complex", f"[1:a]apad=pad_dur={duration},atrim=0:{duration}[a]",
                      "-map", "0:v", "-map", "[a]",
                      "-vf", "fps=30,format=yuv420p",
-                     "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                     "-c:v", "libx264", "-preset", "slow", "-crf", "12",
                      "-c:a", "aac", "-b:a", "128k",
                      "-movflags", "+faststart"]
     else:
@@ -59,7 +60,7 @@ def _make_segment(padded_png: str, audio_path: Optional[str],
         base_cmd += ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
                      "-map", "0:v", "-map", "1:a",
                      "-vf", "fps=30,format=yuv420p",
-                     "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                     "-c:v", "libx264", "-preset", "slow", "-crf", "12",
                      "-c:a", "aac", "-b:a", "128k",
                      "-t", str(duration),
                      "-movflags", "+faststart"]
@@ -83,8 +84,7 @@ def _concat_segments(segment_files: list[str], out_path: str) -> None:
         cmd = [
             "ffmpeg", "-y",
             "-f", "concat", "-safe", "0", "-i", list_path,
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-c:a", "aac", "-b:a", "128k",
+            "-c", "copy",
             "-movflags", "+faststart",
             out_path
         ]

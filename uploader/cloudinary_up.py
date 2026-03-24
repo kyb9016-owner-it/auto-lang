@@ -33,9 +33,8 @@ def upload(image_path: str, lang: str, slot_or_label: str,
         public_id=public_id,
         overwrite=True,
         resource_type="image",
-        format="jpg",
-        quality="auto:good",
-        transformation=[{"width": 1080, "height": 1350, "crop": "limit"}],
+        format="png",
+        transformation=[{"width": 1080, "height": 1350, "crop": "limit", "quality": 100}],
     )
 
     url = result["secure_url"]
