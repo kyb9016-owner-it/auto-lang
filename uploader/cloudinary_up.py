@@ -1,5 +1,6 @@
 """Cloudinary에 이미지/영상 업로드 → public URL 반환"""
 import os
+import time
 from urllib.parse import urlparse
 import cloudinary
 import cloudinary.uploader
@@ -25,13 +26,14 @@ def upload(image_path: str, lang: str, slot_or_label: str,
     date_str: 날짜 태그 (기본값: 오늘). 어제 카드 업로드 시 yesterday 날짜 전달.
     """
     date_tag = date_str or date.today().strftime("%Y%m%d")
+    ts = int(time.time())
     tag = f"_{suffix}" if suffix else ""
-    public_id = f"langcard/{slot_or_label}_{lang}{tag}_{date_tag}"
+    public_id = f"langcard/{slot_or_label}_{lang}{tag}_{date_tag}_{ts}"
 
     result = cloudinary.uploader.upload(
         image_path,
         public_id=public_id,
-        overwrite=True,
+        overwrite=False,
         resource_type="image",
         format="png",
         transformation=[{"width": 1080, "height": 1350, "crop": "limit", "quality": 100}],
@@ -50,13 +52,14 @@ def upload_video(video_path: str, label: str, date_str: str = "",
     """
     if not date_str:
         date_str = date.today().strftime("%Y%m%d")
+    ts = int(time.time())
     tag = f"_{suffix}" if suffix else ""
-    public_id = f"langcard/{label}{tag}_{date_str}"
+    public_id = f"langcard/{label}{tag}_{date_str}_{ts}"
 
     result = cloudinary.uploader.upload(
         video_path,
         public_id=public_id,
-        overwrite=True,
+        overwrite=False,
         resource_type="video",
     )
 
