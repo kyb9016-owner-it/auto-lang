@@ -70,7 +70,9 @@
     "Can you do any better on the price?",
     "Actually, can I change my order?",
     "Can I get a refund on this?",
-    "Is there anywhere I can leave my bags?"
+    "Is there anywhere I can leave my bags?",
+    "Where can I pick up my luggage?",
+    "Small world, isn't it?"
   ],
   "zh": [
     "早上好！今天天气不错吧？",
@@ -127,7 +129,9 @@
     "我叫小李，你呢？",
     "我想退货，可以吗？",
     "这个可以少放糖吗？",
-    "这个能换一个吗？"
+    "这个能换一个吗？",
+    "我的行李可以寄存在这里吗？",
+    "哎，你还活着呢！"
   ],
   "ja": [
     "おはようございます！今日もよろしくお願いします。",
@@ -182,6 +186,13 @@
     "最近どこかで見かけたけど、忙しそうだったね。",
     "これ、返品できますか？",
     "すみません、これと同じものをもう一つお願いします！",
-    "荷物、預かってもらえますか？"
-  ]
+    "荷物、預かってもらえますか？",
+    "免税になりますか？",
+    "最近、どんな感じ？"
+  ],
+  "_posted_slots": {
+    "20260325": [
+      "evening"
+    ]
+  }
 }
