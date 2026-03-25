@@ -96,7 +96,8 @@ def run(langs: list, dry_run: bool, forced_topic=None, slot: str = None) -> None
         sys.exit(1)
 
     # 오늘 표현 데이터 JSON 저장 (내일 종합 캐러셀 커버에 사용)
-    data_json_path = os.path.join("output", f"data_{today}.json")
+    slot_key = slot or "daily"
+    data_json_path = os.path.join("output", f"data_{slot_key}_{today}.json")
     os.makedirs("output", exist_ok=True)
     with open(data_json_path, "w", encoding="utf-8") as f:
         json.dump({"topic": topic, "data": all_data}, f, ensure_ascii=False, indent=2)
@@ -113,8 +114,8 @@ def run(langs: list, dry_run: bool, forced_topic=None, slot: str = None) -> None
     vocab_paths: dict[str, str] = {}
     for lang in langs:
         try:
-            image_paths[lang] = card_renderer.render(all_data[lang], lang, topic)
-            vocab_paths[lang] = card_renderer.render_vocab(all_data[lang], lang, topic)
+            image_paths[lang] = card_renderer.render(all_data[lang], lang, topic, date_str=today)
+            vocab_paths[lang] = card_renderer.render_vocab(all_data[lang], lang, topic, date_str=today)
         except Exception as e:
             print(f"  ✗ {lang} 렌더링 실패: {e}")
             sys.exit(1)
@@ -127,10 +128,11 @@ def run(langs: list, dry_run: bool, forced_topic=None, slot: str = None) -> None
     vocab_tts: dict[str, str | None] = {}
     for lang in langs:
         try:
+            tts_slot = slot or "default"
             expr_tts[lang]  = tts_gen.generate_expression(
-                all_data[lang]["main_expression"], lang, today)
+                all_data[lang]["main_expression"], lang, today, slot=tts_slot)
             vocab_tts[lang] = tts_gen.generate_vocab(
-                all_data[lang].get("vocab", []), lang, today)
+                all_data[lang].get("vocab", []), lang, today, slot=tts_slot)
         except Exception as e:
             print(f"  ⚠ {lang} TTS 실패 (건너뜀): {e}")
             expr_tts[lang]  = None
@@ -163,17 +165,19 @@ def run(langs: list, dry_run: bool, forced_topic=None, slot: str = None) -> None
             yest_imgs, yest_vocs = reel_renderer.find_yesterday_cards(yesterday)
             if len(yest_imgs) == 3:
                 # 어제 표현 데이터 로드 (커버 내용 정확성)
-                yest_json = os.path.join("output", f"data_{yesterday}.json")
+                import glob as _glob
+                yest_jsons = _glob.glob(os.path.join("output", f"data_*_{yesterday}.json"))
                 yest_all_data = all_data   # 폴백: 어제 JSON 없으면 오늘 데이터
                 yest_topic    = topic
-                if os.path.exists(yest_json):
+                if yest_jsons:
+                    yest_json = yest_jsons[0]
                     with open(yest_json, "r", encoding="utf-8") as f:
                         saved = json.load(f)
                         yest_all_data = saved.get("data", all_data)
                         yest_topic    = saved.get("topic", topic)
                     print(f"  ✓ 어제 표현 데이터 로드: {yest_json}")
                 else:
-                    print(f"  ⚠ 어제 JSON 없음, 오늘 데이터로 대체: {yest_json}")
+                    print(f"  ⚠ 어제 JSON 없음, 오늘 데이터로 대체")
                 # 커버 카드 생성 (첫 슬라이드)
                 cover_path = card_renderer.render_recap_cover(
                     yest_all_data, yest_topic, yesterday)

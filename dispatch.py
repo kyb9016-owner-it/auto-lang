@@ -54,6 +54,17 @@ def dispatch(slot: str | None, dry_run: bool = False,
     emoji  = _SLOT_EMOJI.get(label, "📌")
     t_start = time.time()
 
+    # ── 중복 포스팅 방지 ─────────────────────────────────────────────
+    from datetime import date as _date
+    from generator.history import is_slot_posted, mark_slot_posted
+    today_str = _date.today().strftime("%Y%m%d")
+    post_key  = slot or "event"
+    if not dry_run and is_slot_posted(today_str, post_key):
+        msg = f"⚠ [{today_str}] '{post_key}' 슬롯은 이미 포스팅 완료 — 건너뜁니다."
+        print(f"\n{msg}")
+        notify.send(msg)
+        return {"status": "skipped", "reason": "already_posted"}
+
     print(f"\n{emoji} {label} 슬롯 시작 (dry_run={dry_run}, lang={lang_filter or 'all'})")
     print(f"  → Worker: {WORKER_URL}/job")
 
@@ -194,6 +205,10 @@ def dispatch(slot: str | None, dry_run: bool = False,
         + (f" + 캐러셀 {carousel_count}개" if carousel_count else "")
         + f"\n소요시간: {mins}분 {secs}초"
     )
+
+    # 포스팅 완료 기록 (중복 방지용)
+    if not dry_run and total > 0:
+        mark_slot_posted(today_str, post_key)
 
     print(f"\n✅ {label} 슬롯 완료! 총 {total}개 포스팅")
     return data

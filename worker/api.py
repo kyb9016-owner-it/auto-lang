@@ -48,7 +48,7 @@ _bearer = HTTPBearer()
 
 WORKER_SECRET = os.environ.get("WORKER_SECRET", "")
 
-_TOPIC_MAP = {"greetings": 0, "cafe": 1, "travel": 2}
+_TOPIC_MAP = {"greetings": 0, "cafe": 1, "travel": 2, "slang": 3}
 
 # 슬롯별 대표 언어 (복습 캐러셀에서 슬롯당 1언어 표시)
 _SLOT_LANG = {"morning": "en", "lunch": "zh", "evening": "ja"}
