@@ -45,10 +45,18 @@ _TOPIC_MAP = {
 }
 
 
-def run(langs: list, dry_run: bool, forced_topic=None) -> None:
+def run(langs: list, dry_run: bool, forced_topic=None, slot: str = None) -> None:
     today     = date.today().strftime("%Y%m%d")
     yesterday = (date.today() - timedelta(days=1)).strftime("%Y%m%d")
     topic     = forced_topic or get_today_topic()
+
+    # ── 중복 포스팅 방지 ─────────────────────────────────────────────
+    from generator.history import is_slot_posted, mark_slot_posted
+    post_key = slot or topic["topic_ko"]
+    if not dry_run and is_slot_posted(today, post_key):
+        print(f"\n⚠ [{today}] '{post_key}' 슬롯은 이미 포스팅 완료 — 건너뜁니다.")
+        print("  (강제 재실행: --dry-run 으로 이미지만 생성 가능)")
+        return
 
     print(f"\n{'='*54}")
     print(f"LangCard Studio  |  {topic['emoji']} {topic['topic_ko']}")
@@ -261,6 +269,10 @@ def run(langs: list, dry_run: bool, forced_topic=None) -> None:
 
     print(f"\n✅ 전체 포스팅 완료! 총 {len(langs) + (1 if recap_card_urls else 0)}개 포스트")
 
+    # 포스팅 완료 기록 (중복 방지용)
+    if not dry_run:
+        mark_slot_posted(today, post_key)
+
 
 def _prefetch_tomorrow(langs: list, today: str) -> None:
     """오늘 실행 성공 후 내일 표현을 미리 생성해 저장 (실패 시 무시)"""
@@ -325,7 +337,7 @@ def main():
         _slot_to_topic = {"morning": 0, "lunch": 1, "evening": 2}
         forced_topic = TOPIC_CONFIG[_slot_to_topic[args.slot]]
 
-    run(langs, args.dry_run, forced_topic)
+    run(langs, args.dry_run, forced_topic, slot=args.slot)
 
 
 if __name__ == "__main__":

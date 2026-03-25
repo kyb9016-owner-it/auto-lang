@@ -70,12 +70,7 @@
     "Can you do any better on the price?",
     "Actually, can I change my order?",
     "Can I get a refund on this?",
-    "Does this come with free shipping?",
-    "Can I leave my bags here for a bit?",
-    "Is there somewhere I can store my luggage?",
-    "Just browsing, thanks!",
-    "I'm back!",
-    "Is this returnable?"
+    "Is there anywhere I can leave my bags?"
   ],
   "zh": [
     "早上好！今天天气不错吧？",
@@ -132,13 +127,7 @@
     "我叫小李，你呢？",
     "我想退货，可以吗？",
     "这个可以少放糖吗？",
-    "这个能换一个吗？",
-    "能给我开发票吗？",
-    "行李可以寄存在这儿吗？",
-    "这是刚买的，还没用过呢！",
-    "这个买了能退吗？",
-    "来，我给你们介绍一下！",
-    "收据给我一张。"
+    "这个能换一个吗？"
   ],
   "ja": [
     "おはようございます！今日もよろしくお願いします。",
@@ -193,12 +182,6 @@
     "最近どこかで見かけたけど、忙しそうだったね。",
     "これ、返品できますか？",
     "すみません、これと同じものをもう一つお願いします！",
-    "荷物、預かってもらえますか？",
-    "免税にできますか？",
-    "これ、サイズ交換できますか？",
-    "すみません、〇〇はどうやって行けばいいですか？",
-    "すみません、私の荷物が出てこないんですけど…",
-    "久しぶりだね！最近どこにいたの？",
-    "このへんにコインロッカーってありますか？"
+    "荷物、預かってもらえますか？"
   ]
 }

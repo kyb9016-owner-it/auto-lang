@@ -66,3 +66,29 @@ def add(lang: str, expression: str) -> None:
     # 최대 개수 유지
     data[lang] = data[lang][-HISTORY_MAX:]
     _save(data)
+
+
+# ── 포스팅 중복 방지 ──────────────────────────────────────────────────
+
+def is_slot_posted(date_str: str, slot: str) -> bool:
+    """같은 날짜+슬롯으로 이미 포스팅했으면 True"""
+    data = _load()
+    posted = data.get("_posted_slots", {})
+    return slot in posted.get(date_str, [])
+
+
+def mark_slot_posted(date_str: str, slot: str) -> None:
+    """포스팅 완료 기록"""
+    data = _load()
+    posted = data.setdefault("_posted_slots", {})
+    if date_str not in posted:
+        posted[date_str] = []
+    if slot not in posted[date_str]:
+        posted[date_str].append(slot)
+    # 7일 이전 기록 정리
+    from datetime import date as _date, timedelta
+    cutoff = (_date.today() - timedelta(days=7)).strftime("%Y%m%d")
+    for old_date in list(posted.keys()):
+        if old_date < cutoff:
+            del posted[old_date]
+    _save(data)
