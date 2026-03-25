@@ -184,20 +184,25 @@ def render_short(expr_path: str, vocab_path: str,
 def find_yesterday_cards(yesterday: str) -> tuple[dict, dict]:
     """
     어제 날짜의 표현/단어 카드 PNG 탐색.
+    파일명 패턴: expr_{lang}_{slot}_{date}.png  (최신 형식)
     Returns: (image_paths, vocab_paths) 각 {"en": path, ...}
              파일 없으면 빈 dict 반환
     """
+    import glob
     langs = ["en", "zh", "ja"]
     image_paths = {}
     vocab_paths = {}
 
     for lang in langs:
-        expr_p  = os.path.join(OUTPUT_DIR, f"expr_{lang}_{yesterday}.png")
-        vocab_p = os.path.join(OUTPUT_DIR, f"vocab_{lang}_{yesterday}.png")
-        if os.path.exists(expr_p):
-            image_paths[lang] = expr_p
-        if os.path.exists(vocab_p):
-            vocab_paths[lang] = vocab_p
+        # 최신 파일명: expr_{lang}_{slot}_{date}.png
+        expr_matches = glob.glob(
+            os.path.join(OUTPUT_DIR, f"expr_{lang}_*_{yesterday}.png"))
+        vocab_matches = glob.glob(
+            os.path.join(OUTPUT_DIR, f"vocab_{lang}_*_{yesterday}.png"))
+        if expr_matches:
+            image_paths[lang] = expr_matches[0]
+        if vocab_matches:
+            vocab_paths[lang] = vocab_matches[0]
 
     return image_paths, vocab_paths
 
