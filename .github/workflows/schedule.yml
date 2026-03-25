@@ -1,10 +1,10 @@
 name: LangCard Studio — Auto Post
 
 on:
-  schedule:
-    - cron: "0 23 * * *"   # 08:00 KST (UTC-9 오프셋)
-    - cron: "0 3 * * *"    # 12:00 KST
-    - cron: "0 11 * * *"   # 20:00 KST
+  # schedule 비활성화 — 실 운영은 dispatch(kong-main) → worker(sns-worker) 경로 사용
+  # - cron: "0 23 * * *"   # 08:00 KST
+  # - cron: "0 3 * * *"    # 12:00 KST
+  # - cron: "0 11 * * *"   # 20:00 KST
   workflow_dispatch:
     inputs:
       slot:
