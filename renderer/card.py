@@ -257,6 +257,40 @@ def _topic_to_slot(topic) -> str:
     return topic  # 이미 slot str인 경우 (하위 호환)
 
 
+def _apply_bg_image(img: Image.Image, bg_path: str) -> Image.Image:
+    """
+    도시 배경 이미지를 카드 크기(1080×1350)로 center-crop 한 뒤
+    카드 위에 붙이고, 45% 불투명도 검정 오버레이를 씌워 반환.
+    """
+    try:
+        bg = Image.open(bg_path).convert("RGBA")
+        card_w, card_h = CARD_W, CARD_H
+        bw, bh = bg.size
+
+        # center crop — 카드 비율에 맞게 잘라내기
+        scale = max(card_w / bw, card_h / bh)
+        new_w = int(bw * scale)
+        new_h = int(bh * scale)
+        bg = bg.resize((new_w, new_h), Image.LANCZOS)
+        left = (new_w - card_w) // 2
+        top  = (new_h - card_h) // 2
+        bg = bg.crop((left, top, left + card_w, top + card_h))
+
+        # 배경 이미지를 카드(RGBA)에 붙이기
+        base = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 255))
+        base.paste(bg, (0, 0))
+
+        # 45% 불투명도 검정 오버레이
+        overlay = Image.new("RGBA", (card_w, card_h), (0, 0, 0, int(255 * 0.45)))
+        base = Image.alpha_composite(base, overlay)
+
+        # 원본 img(RGBA)의 픽셀 내용을 base로 교체 (in-place 효과)
+        img.paste(base, (0, 0))
+        return img
+    except Exception:
+        return img
+
+
 # ── 메인 렌더 ────────────────────────────────────────────────────────────────
 
 # 레이아웃 구역 상수
@@ -266,10 +300,12 @@ _VOCAB_ZONE_TOP   = 720   # 단어 구역 시작 y
 _VOCAB_ZONE_BOT   = 1040  # 단어 구역 끝 y
 
 
-def render(data: dict, lang: str, topic, date_str: str = "", save: bool = True) -> str:
+def render(data: dict, lang: str, topic, date_str: str = "", save: bool = True,
+           bg_path: str = None) -> str:
     """
     표현 카드 렌더링.
     topic: dict (TOPIC_CONFIG 항목) 또는 str (하위 호환용 slot 이름)
+    bg_path: 도시 배경 이미지 경로 (None이면 기존 그라디언트 사용)
     """
     F.ensure_fonts()
 
@@ -292,6 +328,8 @@ def render(data: dict, lang: str, topic, date_str: str = "", save: bool = True) 
     g = theme["gradient"]
     bg = _gradient(CARD_W, CARD_H, g[0], g[1], g[2] if len(g)>2 else None)
     img = bg.convert("RGBA")
+    if bg_path and os.path.exists(bg_path):
+        img = _apply_bg_image(img, bg_path)
     img = _dot_overlay(img, theme["text_main"])
     img = _emoji_bg(img, theme["emoji"])
     draw = ImageDraw.Draw(img)
@@ -396,19 +434,10 @@ def render(data: dict, lang: str, topic, date_str: str = "", save: bool = True) 
     y = max(golden_center - content_h // 2, avail_top)
     y = min(y, main_avail_bot - content_h)  # 보너스와 겹침 방지
 
-    # ── 1) 한국어 번역 pill (중앙, 줄바꿈 지원) ─────────────────────
-    kpx, kpy = 28, 14
+    # ── 1) 한국어 번역 (중앙, 줄바꿈 지원) ─────────────────────
+    kpy = 14
     ko_total_h = sum(_th(draw, ln, ko_font) + 6 for ln in ko_lines) - 6
-    pill_h = ko_total_h + kpy * 2
-    # pill 너비 = 가장 긴 줄 기준
-    ko_max_w = max(_tw(draw, ln, ko_font) for ln in ko_lines)
-    kx0 = cx - ko_max_w//2 - kpx; kx1 = cx + ko_max_w//2 + kpx
-    ky1 = y + pill_h
-    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    ImageDraw.Draw(layer).rounded_rectangle([kx0, y, kx1, ky1], radius=14,
-                                             fill=theme["kr_badge_bg"])
-    img = Image.alpha_composite(img, layer)
-    draw = ImageDraw.Draw(img)
+    ky1 = y + ko_total_h + kpy * 2
     ty = y + kpy
     for ln in ko_lines:
         lw = _tw(draw, ln, ko_font)
@@ -495,10 +524,12 @@ def render(data: dict, lang: str, topic, date_str: str = "", save: bool = True) 
 
 # ── 단어 전용 카드 렌더러 ─────────────────────────────────────────────────────
 
-def render_vocab(data: dict, lang: str, topic, date_str: str = "", save: bool = True) -> str:
+def render_vocab(data: dict, lang: str, topic, date_str: str = "", save: bool = True,
+                 bg_path: str = None) -> str:
     """
     단어 전용 카드 렌더링.
     topic: dict (TOPIC_CONFIG 항목) 또는 str (하위 호환용 slot 이름)
+    bg_path: 도시 배경 이미지 경로 (None이면 기존 그라디언트 사용)
     """
     F.ensure_fonts()
 
@@ -521,6 +552,8 @@ def render_vocab(data: dict, lang: str, topic, date_str: str = "", save: bool = 
     g = theme["gradient"]
     bg = _gradient(CARD_W, CARD_H, g[0], g[1], g[2] if len(g)>2 else None)
     img = bg.convert("RGBA")
+    if bg_path and os.path.exists(bg_path):
+        img = _apply_bg_image(img, bg_path)
     img = _dot_overlay(img, theme["text_main"])
     img = _emoji_bg(img, theme["emoji"])
     draw = ImageDraw.Draw(img)

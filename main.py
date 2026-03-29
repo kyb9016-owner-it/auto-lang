@@ -35,6 +35,7 @@ from renderer import fonts as F
 from renderer import reel as reel_renderer
 from renderer import tts_gen
 from uploader import cloudinary_up, instagram
+from fetcher.unsplash import fetch_city_bg
 
 
 _TOPIC_MAP = {
@@ -110,12 +111,22 @@ def run(langs: list, dry_run: bool, forced_topic=None, slot: str = None) -> None
     # [3] 카드 이미지 렌더링
     # ──────────────────────────────────────────────────────────────────
     print(f"\n[3/8] 카드 이미지 렌더링 (6장)")
+    os.makedirs("tmp", exist_ok=True)
     image_paths: dict[str, str] = {}
     vocab_paths: dict[str, str] = {}
     for lang in langs:
         try:
-            image_paths[lang] = card_renderer.render(all_data[lang], lang, topic, date_str=today)
-            vocab_paths[lang] = card_renderer.render_vocab(all_data[lang], lang, topic, date_str=today)
+            # 도시 배경 이미지 가져오기 (실패 시 None → 그라디언트 폴백)
+            current_slot = slot or "morning"
+            bg_path = fetch_city_bg(lang, current_slot)
+            if bg_path:
+                print(f"  ✓ {lang} 도시 배경 이미지 준비: {bg_path}")
+            else:
+                print(f"  ℹ {lang} 도시 배경 없음 (그라디언트 사용)")
+            image_paths[lang] = card_renderer.render(
+                all_data[lang], lang, topic, date_str=today, bg_path=bg_path)
+            vocab_paths[lang] = card_renderer.render_vocab(
+                all_data[lang], lang, topic, date_str=today, bg_path=bg_path)
         except Exception as e:
             print(f"  ✗ {lang} 렌더링 실패: {e}")
             sys.exit(1)

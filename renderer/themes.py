@@ -18,6 +18,7 @@ CARD_THEMES = {
         text_main=(255, 255, 255),          text_sub=(255, 255, 255, 180),
         kr_badge_bg=(255, 255, 255, 50),
         emoji="😊",
+        slot_keyword="sunrise",
     ),
     ("en", "lunch"): dict(
         gradient=[(249, 83, 198), (185, 29, 115)],
@@ -26,6 +27,7 @@ CARD_THEMES = {
         text_main=(255, 255, 255),          text_sub=(255, 255, 255, 180),
         kr_badge_bg=(255, 255, 255, 50),
         emoji="☕",
+        slot_keyword="street daytime",
     ),
     ("en", "evening"): dict(
         gradient=[(71, 118, 230), (142, 84, 233)],
@@ -34,6 +36,7 @@ CARD_THEMES = {
         text_main=(255, 255, 255),          text_sub=(255, 255, 255, 180),
         kr_badge_bg=(255, 255, 255, 50),
         emoji="🗺️",
+        slot_keyword="night lights",
     ),
     # ─── CHINESE ────────────────────────────────────────────────────
     ("zh", "morning"): dict(
@@ -43,6 +46,7 @@ CARD_THEMES = {
         text_main=(255, 255, 255),          text_sub=(255, 255, 255, 180),
         kr_badge_bg=(255, 255, 255, 50),
         emoji="🙏",
+        slot_keyword="sunrise",
     ),
     ("zh", "lunch"): dict(
         gradient=[(247, 151, 30), (255, 210, 0)],
@@ -51,6 +55,7 @@ CARD_THEMES = {
         text_main=(26, 26, 26),             text_sub=(0, 0, 0, 140),
         kr_badge_bg=(0, 0, 0, 30),
         emoji="🧋",
+        slot_keyword="street daytime",
     ),
     ("zh", "evening"): dict(
         gradient=[(6, 214, 160), (17, 138, 178)],
@@ -59,6 +64,7 @@ CARD_THEMES = {
         text_main=(255, 255, 255),          text_sub=(255, 255, 255, 180),
         kr_badge_bg=(255, 255, 255, 50),
         emoji="🗺️",
+        slot_keyword="night lights",
     ),
     # ─── JAPANESE ───────────────────────────────────────────────────
     ("ja", "morning"): dict(
@@ -68,6 +74,7 @@ CARD_THEMES = {
         text_main=(255, 255, 255),          text_sub=(255, 255, 255, 180),
         kr_badge_bg=(255, 255, 255, 50),
         emoji="🌸",
+        slot_keyword="sunrise",
     ),
     ("ja", "lunch"): dict(
         gradient=[(0, 245, 212), (0, 187, 249), (155, 93, 229)],
@@ -76,6 +83,7 @@ CARD_THEMES = {
         text_main=(255, 255, 255),          text_sub=(255, 255, 255, 180),
         kr_badge_bg=(255, 255, 255, 50),
         emoji="🍵",
+        slot_keyword="street daytime",
     ),
     ("ja", "evening"): dict(
         gradient=[(247, 37, 133), (114, 9, 183)],
@@ -84,6 +92,7 @@ CARD_THEMES = {
         text_main=(255, 255, 255),          text_sub=(255, 255, 255, 180),
         kr_badge_bg=(255, 255, 255, 50),
         emoji="🏷️",
+        slot_keyword="night lights",
     ),
 }
 

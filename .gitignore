@@ -17,3 +17,4 @@ output/*.mp3
 output/*.mp4
 output/tts/
 output/reel_frames/
+tmp/
