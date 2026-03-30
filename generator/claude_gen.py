@@ -80,7 +80,7 @@ Return ONLY this JSON:
 def _call_api(prompt: str) -> dict:
     """Claude API 호출 후 JSON 파싱"""
     message = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=900,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}],
