@@ -37,6 +37,7 @@ from generator import claude_gen, history as hist_module
 from renderer import card as card_renderer
 from renderer import fonts as F
 from renderer import reel as reel_renderer
+from fetcher.unsplash import fetch_city_bg
 from renderer import tts_gen
 from uploader import cloudinary_up
 
@@ -238,8 +239,11 @@ def run_job(req: JobRequest, creds=Security(_verify)):
     vocab_paths: dict[str, str] = {}
     for lang in list(all_data.keys()):
         try:
-            image_paths[lang] = card_renderer.render(all_data[lang], lang, topic, date_str=today)
-            vocab_paths[lang] = card_renderer.render_vocab(all_data[lang], lang, topic, date_str=today)
+            bg_path = fetch_city_bg(lang, slot)
+            if bg_path:
+                print(f"  ✓ {lang} 도시 배경 이미지 준비: {bg_path}")
+            image_paths[lang] = card_renderer.render(all_data[lang], lang, topic, date_str=today, bg_path=bg_path)
+            vocab_paths[lang] = card_renderer.render_vocab(all_data[lang], lang, topic, date_str=today, bg_path=bg_path)
             print(f"  ✓ {lang}: 표현카드 + 단어카드")
         except Exception as e:
             print(f"  ✗ {lang} 렌더링 실패 (건너뜀): {e}")
