@@ -117,7 +117,7 @@ def run(langs: list, dry_run: bool, forced_topic=None, slot: str = None) -> None
     for lang in langs:
         try:
             # 도시 배경 이미지 가져오기 (실패 시 None → 그라디언트 폴백)
-            current_slot = slot or "morning"
+            current_slot = slot or topic.get("theme_slot", "morning")
             bg_path = fetch_city_bg(lang, current_slot)
             if bg_path:
                 print(f"  ✓ {lang} 도시 배경 이미지 준비: {bg_path}")

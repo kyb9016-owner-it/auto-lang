@@ -239,7 +239,7 @@ def run_job(req: JobRequest, creds=Security(_verify)):
     vocab_paths: dict[str, str] = {}
     for lang in list(all_data.keys()):
         try:
-            bg_path = fetch_city_bg(lang, slot)
+            bg_path = fetch_city_bg(lang, req.slot or topic.get("theme_slot", "morning"))
             if bg_path:
                 print(f"  ✓ {lang} 도시 배경 이미지 준비: {bg_path}")
             image_paths[lang] = card_renderer.render(all_data[lang], lang, topic, date_str=today, bg_path=bg_path)
