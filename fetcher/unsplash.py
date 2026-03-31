@@ -37,39 +37,47 @@ def fetch_city_bg(lang: str, slot: str, city: str = None) -> str | None:
     if not access_key:
         return None
 
-    try:
-        if city is None:
-            cities = LANG_CITIES.get(lang, [])
-            if not cities:
-                return None
-            city = random.choice(cities)
+    if city is None:
+        cities = LANG_CITIES.get(lang, [])
+        if not cities:
+            return None
+        city = random.choice(cities)
 
-        keyword = SLOT_KEYWORDS.get(slot, "cityscape")
-        query = f"{city} {keyword} cityscape"
+    keyword = SLOT_KEYWORDS.get(slot, "cityscape")
 
-        resp = requests.get(
-            "https://api.unsplash.com/photos/random",
-            params={
-                "query": query,
-                "orientation": "portrait",
-                "client_id": access_key,
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    # 구체적 쿼리 → 도시명만 폴백 → 다른 도시로 재시도
+    queries = [
+        f"{city} {keyword} cityscape",
+        f"{city} cityscape",
+    ]
 
-        image_url = data["urls"]["regular"]
+    for query in queries:
+        try:
+            resp = requests.get(
+                "https://api.unsplash.com/photos/random",
+                params={
+                    "query": query,
+                    "orientation": "portrait",
+                    "client_id": access_key,
+                },
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
 
-        img_resp = requests.get(image_url, timeout=30)
-        img_resp.raise_for_status()
+            image_url = data["urls"]["regular"]
+            img_resp = requests.get(image_url, timeout=30)
+            img_resp.raise_for_status()
 
-        _TMP_DIR.mkdir(parents=True, exist_ok=True)
-        out_path = _TMP_DIR / f"bg_{lang}_{slot}.jpg"
-        out_path.write_bytes(img_resp.content)
+            _TMP_DIR.mkdir(parents=True, exist_ok=True)
+            out_path = _TMP_DIR / f"bg_{lang}_{slot}.jpg"
+            out_path.write_bytes(img_resp.content)
 
-        return str(out_path)
+            return str(out_path)
 
-    except Exception as e:
-        print(f"  ⚠ [{lang}] 배경 이미지 실패 ({city} {keyword}): {e}")
-        return None
+        except Exception as e:
+            print(f"  ⚠ [{lang}] 배경 쿼리 실패 ({query}): {e}")
+            continue
+
+    print(f"  ⚠ [{lang}] 배경 이미지 전체 실패 — 그라디언트 폴백")
+    return None
