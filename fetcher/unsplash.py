@@ -70,5 +70,6 @@ def fetch_city_bg(lang: str, slot: str, city: str = None) -> str | None:
 
         return str(out_path)
 
-    except Exception:
+    except Exception as e:
+        print(f"  ⚠ [{lang}] 배경 이미지 실패 ({city} {keyword}): {e}")
         return None

@@ -242,6 +242,8 @@ def run_job(req: JobRequest, creds=Security(_verify)):
             bg_path = fetch_city_bg(lang, req.slot or topic.get("theme_slot", "morning"))
             if bg_path:
                 print(f"  ✓ {lang} 도시 배경 이미지 준비: {bg_path}")
+            else:
+                print(f"  ⚠ {lang} 도시 배경 없음 (그라디언트 폴백)")
             image_paths[lang] = card_renderer.render(all_data[lang], lang, topic, date_str=today, bg_path=bg_path)
             vocab_paths[lang] = card_renderer.render_vocab(all_data[lang], lang, topic, date_str=today, bg_path=bg_path)
             print(f"  ✓ {lang}: 표현카드 + 단어카드")
