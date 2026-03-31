@@ -45,10 +45,13 @@ def fetch_city_bg(lang: str, slot: str, city: str = None) -> str | None:
 
     keyword = SLOT_KEYWORDS.get(slot, "cityscape")
 
-    # 구체적 쿼리 → 도시명만 폴백 → 다른 도시로 재시도
+    # 구체적 쿼리 → 도시명만 → 일반 키워드 폴백
+    _LANG_GENERIC = {"en": "American city", "zh": "Chinese city", "ja": "Japanese city"}
+    generic = _LANG_GENERIC.get(lang, "city")
     queries = [
         f"{city} {keyword} cityscape",
         f"{city} cityscape",
+        f"{generic} {keyword}",
     ]
 
     for query in queries:
