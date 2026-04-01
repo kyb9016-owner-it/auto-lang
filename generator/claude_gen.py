@@ -155,7 +155,9 @@ Return ONLY this JSON:
 {{
   "hook": "짧고 강한 한국어 문장 (예: '이거 영어로 말하면 99%가 틀림')",
   "wrong": "the incorrect {lc['name']} expression Koreans commonly say",
+  "wrong_ko_phonetic": "WRONG의 한글 발음 표기 (예: '워 헌 까오씽 지엔따오 니')",
   "right": "the natural/correct {lc['name']} expression",
+  "right_ko_phonetic": "RIGHT의 한글 발음 표기 (예: '헌 까오씽 지엔따오 니')",
   "right_ko": "RIGHT의 한국어 뜻",
   {pronunciation_field}
   "tts_parts": {{

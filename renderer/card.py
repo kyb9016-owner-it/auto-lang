@@ -1516,6 +1516,17 @@ def render_wrong_right_card(data: dict, lang: str, date_str: str, slot: str,
                   fill=(*RED_FILL[:3], 200), width=3)
         wrong_y += _th(draw, line, expr_font) + 10
 
+    # wrong 한글 발음
+    wrong_phonetic = data.get("wrong_ko_phonetic", "")
+    if wrong_phonetic:
+        wrong_y += 4
+        wp_font = F.noto_kr(28)
+        wpb = draw.textbbox((0, 0), wrong_phonetic, font=wp_font)
+        wpw = wpb[2] - wpb[0]
+        draw.text(((CARD_W - wpw) // 2, wrong_y - wpb[1]),
+                  wrong_phonetic, font=wp_font, fill=GRAY_FILL)
+        wrong_y += _th(draw, wrong_phonetic, wp_font) + 8
+
     # 구분선
     sep_y = int(CARD_H * 0.48)
     draw.line([(PAD, sep_y), (CARD_W - PAD, sep_y)],
@@ -1552,6 +1563,17 @@ def render_wrong_right_card(data: dict, lang: str, date_str: str, slot: str,
         draw.text(((CARD_W - lw) // 2, right_y - bb[1]),
                   line, font=right_font, fill=GREEN_FILL)
         right_y += _th(draw, line, right_font) + 10
+
+    # right 한글 발음
+    right_phonetic = data.get("right_ko_phonetic", "")
+    if right_phonetic:
+        right_y += 4
+        rp_font = F.noto_kr(28)
+        rpb = draw.textbbox((0, 0), right_phonetic, font=rp_font)
+        rpw = rpb[2] - rpb[0]
+        draw.text(((CARD_W - rpw) // 2, right_y - rpb[1]),
+                  right_phonetic, font=rp_font, fill=GRAY_FILL)
+        right_y += _th(draw, right_phonetic, rp_font) + 8
     right_y += 14
 
     # right_ko (흰색, 작게)

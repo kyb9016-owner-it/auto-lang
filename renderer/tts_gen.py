@@ -23,12 +23,14 @@ WORD_DURATION = 2.0  # 단어카드: 단어당 오디오 지속시간 (초)
 
 # ── 저수준 유틸 ───────────────────────────────────────────────────────────────
 
-async def _gen_async(text: str, voice: str, out_path: str) -> None:
-    communicate = edge_tts.Communicate(text, voice)
+async def _gen_async(text: str, voice: str, out_path: str,
+                     rate: str = "+0%") -> None:
+    communicate = edge_tts.Communicate(text, voice, rate=rate)
     await communicate.save(out_path)
 
 
-def _generate(text: str, lang: str, out_path: str, slot: str = "default") -> bool:
+def _generate(text: str, lang: str, out_path: str, slot: str = "default",
+              rate: str = "+0%") -> bool:
     """TTS 생성 공통 함수. 성공 여부 반환.
     - 1차: 슬롯 지정 음성으로 최대 3회 재시도
     - 2차: 1차 전체 실패 시 default 음성으로 1회 폴백
@@ -47,7 +49,7 @@ def _generate(text: str, lang: str, out_path: str, slot: str = "default") -> boo
     # 1차: 지정 음성으로 3회 시도
     for attempt in range(3):
         try:
-            asyncio.run(_gen_async(text, primary_voice, out_path))
+            asyncio.run(_gen_async(text, primary_voice, out_path, rate=rate))
             size_kb = os.path.getsize(out_path) // 1024
             print(f"  ✓ TTS 생성: {os.path.basename(out_path)}  ({size_kb} KB)")
             return True
@@ -62,7 +64,7 @@ def _generate(text: str, lang: str, out_path: str, slot: str = "default") -> boo
     if fallback_voice != primary_voice:
         try:
             print(f"  ↻ TTS 폴백 음성 시도 ({lang}/{fallback_voice})")
-            asyncio.run(_gen_async(text, fallback_voice, out_path))
+            asyncio.run(_gen_async(text, fallback_voice, out_path, rate=rate))
             size_kb = os.path.getsize(out_path) // 1024
             print(f"  ✓ TTS 폴백 성공: {os.path.basename(out_path)}  ({size_kb} KB)")
             return True
@@ -280,8 +282,8 @@ def generate_hook_tts(data: dict, lang: str, date_str: str,
                 print(f"  ⚠ TTS ({label}) 실패: {e}")
                 continue
         else:
-            # 타겟 언어: 기존 _generate 함수 사용 (slot-based voice selection)
-            if not _generate(text, part_lang, part_path, slot=slot):
+            # 타겟 언어: 느린 속도로 발음 (-25%)
+            if not _generate(text, part_lang, part_path, slot=slot, rate="-25%"):
                 continue
 
         if os.path.exists(part_path):
