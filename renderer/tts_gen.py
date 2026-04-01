@@ -111,7 +111,8 @@ def _concat_mp3_files(files: list, out: str) -> bool:
         cmd = [
             "ffmpeg", "-y",
             "-f", "concat", "-safe", "0", "-i", list_path,
-            "-c:a", "libmp3lame", "-b:a", "128k",
+            "-af", "aresample=44100",
+            "-c:a", "libmp3lame", "-ar", "44100", "-b:a", "128k",
             out, "-loglevel", "error"
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)

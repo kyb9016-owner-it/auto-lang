@@ -57,11 +57,12 @@ def _make_segment(padded_png: str, audio_path: Optional[str],
 
     if audio_path and os.path.exists(audio_path):
         base_cmd += ["-i", audio_path,
-                     "-filter_complex", f"[1:a]apad=pad_dur={duration},atrim=0:{duration}[a]",
+                     "-filter_complex",
+                     f"[1:a]aresample=44100,apad=pad_dur={duration},atrim=0:{duration}[a]",
                      "-map", "0:v", "-map", "[a]",
                      "-vf", "fps=30,format=yuv420p",
                      "-c:v", "libx264", "-preset", "medium", "-crf", "18",
-                     "-c:a", "aac", "-b:a", "128k",
+                     "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
                      "-movflags", "+faststart"]
     else:
         # 오디오 없음 — 무음 트랙 추가 (concat 시 호환성)
