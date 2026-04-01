@@ -121,6 +121,83 @@ def generate(lang: str, topic: dict, max_retries: int = 3) -> dict:
     return data
 
 
+_HOOK_SYSTEM = """You are a language correction content creator for Korean Instagram.
+You create "common mistake → correct expression" content for Korean learners.
+The content must be accurate: WRONG must be a real, common mistake Koreans actually make.
+RIGHT must be the natural, native-speaker expression.
+Always respond with valid JSON only. No markdown, no extra text."""
+
+
+def _build_hook_prompt(lang: str, recent_wrongs: list[str]) -> str:
+    lc = LANG_CONFIG[lang]
+    history_str = "\n".join(f"  - {w}" for w in recent_wrongs) if recent_wrongs else "  (없음)"
+
+    pronunciation_field = ""
+    if lc["has_pronunciation"]:
+        pronunciation_field = f'"pronunciation": "{lc["pronunciation_label"]} of the RIGHT expression",'
+    else:
+        pronunciation_field = '"pronunciation": null,'
+
+    return f"""Generate ONE common mistake that Korean speakers make in {lc['name']}.
+
+Topic: Everyday expressions (일상생활 표현)
+
+Rules:
+- WRONG must be a mistake Koreans ACTUALLY make frequently (Konglish, direct translation, grammar error, etc.)
+- RIGHT must be what native speakers naturally say in the same situation
+- The difference must have clear learning value (not trivially obvious)
+- HOOK must stop scrolling in 1 second — provocative, short, in Korean
+- TTS parts must be under 15 characters each (for timing control)
+- MUST be different from these recently used WRONG expressions:
+{history_str}
+
+Return ONLY this JSON:
+{{
+  "hook": "짧고 강한 한국어 문장 (예: '이거 영어로 말하면 99%가 틀림')",
+  "wrong": "the incorrect {lc['name']} expression Koreans commonly say",
+  "right": "the natural/correct {lc['name']} expression",
+  "right_ko": "RIGHT의 한국어 뜻",
+  {pronunciation_field}
+  "tts_parts": {{
+    "intro": "한국어 도입 (15자 이내, 예: '많은 사람들이 이렇게 말합니다')",
+    "bridge": "한국어 연결 (15자 이내, 예: '하지만 올바른 표현은')",
+    "outro": "한국어 마무리 (15자 이내, 예: RIGHT의 한국어 뜻)"
+  }},
+  "subtitle_lines": [
+    "자막1: HOOK 요약 (10단어 이내)",
+    "❌ WRONG 표현",
+    "→ WRONG의 한국어 뜻",
+    "✅ RIGHT 표현",
+    "→ RIGHT의 한국어 뜻"
+  ],
+  "cta": "저장/댓글 유도 문구 (예: '이거 몰랐으면 저장 👆')"
+}}"""
+
+
+def generate_hook(lang: str, max_retries: int = 3) -> dict:
+    """
+    HOOK형 콘텐츠 생성 (WRONG→RIGHT 교정 포맷).
+    중복 감지: wrong 표현 기준으로 체크.
+    """
+    for attempt in range(1, max_retries + 1):
+        recent_wrongs = history.get_recent_hook(lang)
+        prompt = _build_hook_prompt(lang, recent_wrongs)
+        data = _call_api(prompt)
+        wrong = data["wrong"]
+
+        if not history.is_hook_duplicate(lang, wrong):
+            history.add_hook(lang, wrong, data["right"])
+            if attempt > 1:
+                print(f"  ↻ {lang} 재시도 {attempt}회 만에 새 표현: {wrong}")
+            return data
+
+        print(f"  ⚠ {lang} 중복 감지 (시도 {attempt}/{max_retries}): {wrong!r}")
+
+    print(f"  ✗ {lang} 재시도 초과, 중복 허용: {data['wrong']!r}")
+    history.add_hook(lang, data["wrong"], data["right"])
+    return data
+
+
 _COLLECTION_SYSTEM = """You are a language content creator for Korean learners.
 Generate relatable Korean everyday phrases with their natural equivalents in English, Chinese, and Japanese.
 Always respond with valid JSON only. No markdown, no extra text."""
