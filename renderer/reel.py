@@ -266,3 +266,52 @@ def render(image_paths: dict, vocab_paths: dict,
     size_kb = os.path.getsize(out_path) // 1024
     print(f"  ✓ 종합 릴스 저장: {out_path}  ({size_kb} KB)")
     return out_path
+
+
+# ── HOOK 릴스 (훅 카드 + WRONG→RIGHT + CTA) ──────────────────────────────────
+
+def render_hook_reel(hook_png: str, wrongright_png: str, cta_png: str,
+                     tts_path: Optional[str],
+                     lang: str, date_str: str,
+                     slot: str = "daily") -> str:
+    """
+    HOOK 릴스: [HOOK 2초] → [WRONG→RIGHT 10초 + TTS] → [CTA 3초]
+    = 총 15초
+    Returns: output/hook_{lang}_{slot}_{date_str}.mp4
+    """
+    os.makedirs(FRAMES_DIR, exist_ok=True)
+
+    segments = []
+
+    # ── HOOK 카드 (2초, 무음) ─────────────────────────────────────────
+    padded_hook = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_hook.png")
+    _pad_to_9_16(hook_png, padded_hook)
+    seg_hook = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_seg_hook.mp4")
+    _make_segment(padded_hook, None, 2.0, seg_hook)
+    segments.append(seg_hook)
+
+    # ── WRONG→RIGHT 카드 (TTS 기반 길이, 최소 8초 최대 11초) ──────────
+    padded_wr = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_wr.png")
+    _pad_to_9_16(wrongright_png, padded_wr)
+
+    tts_dur = _get_audio_duration(tts_path) if tts_path else 0.0
+    wr_duration = max(8.0, min(11.0, tts_dur + 1.0))
+
+    seg_wr = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_seg_wr.mp4")
+    _make_segment(padded_wr, tts_path, wr_duration, seg_wr)
+    segments.append(seg_wr)
+
+    # ── CTA 카드 (3초, 무음) ──────────────────────────────────────────
+    padded_cta = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_cta.png")
+    _pad_to_9_16(cta_png, padded_cta)
+    seg_cta = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_seg_cta.mp4")
+    _make_segment(padded_cta, None, 3.0, seg_cta)
+    segments.append(seg_cta)
+
+    # ── 최종 합성 ─────────────────────────────────────────────────────
+    out_path = os.path.join(OUTPUT_DIR, f"hook_{lang}_{slot}_{date_str}.mp4")
+    _concat_segments(segments, out_path)
+
+    size_kb = os.path.getsize(out_path) // 1024
+    print(f"  ✓ HOOK 릴스 저장: {out_path} ({size_kb} KB)")
+    return out_path
