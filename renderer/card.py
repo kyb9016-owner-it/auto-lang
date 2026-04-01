@@ -1346,3 +1346,279 @@ def render_collection_cta(date_str: str) -> str:
     img.convert("RGB").save(out_path, "PNG", optimize=True)
     print(f"  ✓ 컬렉션 CTA 저장: {out_path}")
     return out_path
+
+
+# ── HOOK / WRONG→RIGHT / CTA 카드 렌더러 ─────────────────────────────────────
+
+def render_hook_card(hook_text: str, lang: str, date_str: str, slot: str,
+                     bg_path: str = None) -> str:
+    """
+    HOOK 카드: 한국어 HOOK 텍스트를 중앙에 크게 표시.
+    slot → theme 그라디언트 사용 (render()와 동일 패턴).
+    Returns: output/hook_{lang}_{slot}_{date_str}.png
+    """
+    F.ensure_fonts()
+
+    theme  = CARD_THEMES[(lang, slot)]
+    cx     = CARD_W // 2
+
+    # ── 배경 ─────────────────────────────────────────────────────────
+    g = theme["gradient"]
+    bg = _gradient(CARD_W, CARD_H, g[0], g[1], g[2] if len(g) > 2 else None)
+    img = bg.convert("RGBA")
+    if bg_path and os.path.exists(bg_path):
+        img = _apply_bg_image(img, bg_path)
+    img = _dot_overlay(img, theme["text_main"])
+    img = _emoji_bg(img, theme["emoji"])
+    draw = ImageDraw.Draw(img)
+
+    ts        = theme["text_sub"]
+    sub_fill  = (*ts[:3], ts[3] if len(ts) > 3 else 200)
+    main_fill = (*theme["text_main"], 255)
+
+    # ── HOOK 텍스트 — 중앙 황금비 배치 ──────────────────────────────
+    hook_font_fn = F.noto_kr
+    # 텍스트 너비에 맞게 폰트 크기 자동 조절
+    hook_font, _ = _fit_font(draw, hook_text, hook_font_fn,
+                             USABLE_W, start=96, stop=40, step=4)
+
+    hook_lines = _wrap(draw, hook_text, hook_font, USABLE_W, is_cjk=True)
+    block_h = sum(_th(draw, ln, hook_font) + 14 for ln in hook_lines) - 14
+
+    avail_top = 160
+    avail_bot = CARD_H - 80
+    avail_h   = avail_bot - avail_top
+    golden_center = avail_top + int(avail_h * 0.42)
+    y = max(golden_center - block_h // 2, avail_top)
+
+    for line in hook_lines:
+        lw = _tw(draw, line, hook_font)
+        bb = draw.textbbox((0, 0), line, font=hook_font)
+        # 텍스트 그림자
+        draw.text(((CARD_W - lw) // 2 + 3, y - bb[1] + 3),
+                  line, font=hook_font, fill=(0, 0, 0, 120))
+        draw.text(((CARD_W - lw) // 2, y - bb[1]),
+                  line, font=hook_font, fill=main_fill)
+        y += _th(draw, line, hook_font) + 14
+
+    # ── 워터마크 ─────────────────────────────────────────────────────
+    wm_font = F.noto_kr(22)
+    wm      = "@langcard.studio"
+    wmw     = _tw(draw, wm, wm_font)
+    draw.text(((CARD_W - wmw) // 2, CARD_H - 38), wm,
+              font=wm_font, fill=(*ts[:3], ts[3] // 2 if len(ts) > 3 else 90))
+
+    # ── 저장 ─────────────────────────────────────────────────────────
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    _date    = date_str or _today_kst().strftime("%Y%m%d")
+    out_path = os.path.join(OUTPUT_DIR, f"hook_{lang}_{slot}_{_date}.png")
+    img.convert("RGB").save(out_path, "PNG", optimize=True)
+    print(f"  ✓ HOOK 카드 저장: {out_path}")
+    return out_path
+
+
+def render_wrong_right_card(data: dict, lang: str, date_str: str, slot: str,
+                             bg_path: str = None) -> str:
+    """
+    WRONG→RIGHT 카드.
+    data: {wrong, right, right_ko, pronunciation (optional)}
+    Upper area (~25%): ❌ + wrong (red, strikethrough)
+    Lower area (~55%): ✅ + right (green, bold), right_ko, pronunciation
+    Returns: output/wrongright_{lang}_{slot}_{date_str}.png
+    """
+    F.ensure_fonts()
+
+    theme  = CARD_THEMES[(lang, slot)]
+    is_cjk = lang in ("zh", "ja")
+    cx     = CARD_W // 2
+
+    # ── 배경 ─────────────────────────────────────────────────────────
+    g = theme["gradient"]
+    bg = _gradient(CARD_W, CARD_H, g[0], g[1], g[2] if len(g) > 2 else None)
+    img = bg.convert("RGBA")
+    if bg_path and os.path.exists(bg_path):
+        img = _apply_bg_image(img, bg_path)
+    img = _dot_overlay(img, theme["text_main"])
+    img = _emoji_bg(img, theme["emoji"])
+    draw = ImageDraw.Draw(img)
+
+    ts        = theme["text_sub"]
+    sub_fill  = (*ts[:3], ts[3] if len(ts) > 3 else 200)
+    main_fill = (*theme["text_main"], 255)
+
+    # ── 색상 상수 ─────────────────────────────────────────────────────
+    RED_FILL   = (255, 107, 107, 255)   # #FF6B6B
+    GREEN_FILL = (81, 207, 102, 255)    # #51CF66
+    GRAY_FILL  = (*ts[:3], 180)
+
+    font_fn   = _main_font_fn(lang)
+
+    # ── 폰트 설정 ─────────────────────────────────────────────────────
+    wrong_text = data.get("wrong", "")
+    right_text = data.get("right", "")
+    right_ko   = data.get("right_ko", "")
+    pron_text  = data.get("pronunciation")
+
+    expr_font, _ = _fit_font(draw, wrong_text, font_fn, USABLE_W - 80,
+                             start=72, stop=32, step=4)
+    right_font, _ = _fit_font(draw, right_text, font_fn, USABLE_W - 80,
+                              start=72, stop=32, step=4)
+    ko_font   = F.noto_kr(40)
+    pron_font = F.noto_kr(32)
+
+    # ── WRONG 구역 (y ~25% = 337) ────────────────────────────────────
+    wrong_y = int(CARD_H * 0.22)
+
+    # ❌ 레이블
+    x_label     = "❌ 틀린 표현"
+    x_label_f   = F.noto_kr(30)
+    xlb         = draw.textbbox((0, 0), x_label, font=x_label_f)
+    xlw         = xlb[2] - xlb[0]
+    draw.text(((CARD_W - xlw) // 2, wrong_y - xlb[1]),
+              x_label, font=x_label_f, fill=(*RED_FILL[:3], 200))
+    wrong_y += (xlb[3] - xlb[1]) + 20
+
+    # wrong 텍스트 (빨간색)
+    wrong_lines = _wrap(draw, wrong_text, expr_font, USABLE_W - 80, is_cjk)
+    for line in wrong_lines:
+        lw = _tw(draw, line, expr_font)
+        bb = draw.textbbox((0, 0), line, font=expr_font)
+        tx = (CARD_W - lw) // 2
+        ty = wrong_y - bb[1]
+        draw.text((tx, ty), line, font=expr_font, fill=RED_FILL)
+        # 취소선
+        line_y = ty + (bb[3] - bb[1]) // 2
+        draw.line([(tx - 4, line_y), (tx + lw + 4, line_y)],
+                  fill=(*RED_FILL[:3], 200), width=3)
+        wrong_y += _th(draw, line, expr_font) + 10
+
+    # 구분선
+    sep_y = int(CARD_H * 0.48)
+    draw.line([(PAD, sep_y), (CARD_W - PAD, sep_y)],
+              fill=(*theme["text_main"], 40), width=1)
+
+    # ── RIGHT 구역 (y ~55% = 742) ────────────────────────────────────
+    right_y = int(CARD_H * 0.53)
+
+    # ✅ 레이블
+    v_label   = "✅ 올바른 표현"
+    v_label_f = F.noto_kr(30)
+    vlb       = draw.textbbox((0, 0), v_label, font=v_label_f)
+    vlw       = vlb[2] - vlb[0]
+    draw.text(((CARD_W - vlw) // 2, right_y - vlb[1]),
+              v_label, font=v_label_f, fill=(*GREEN_FILL[:3], 200))
+    right_y += (vlb[3] - vlb[1]) + 20
+
+    # right 텍스트 (초록색, bold)
+    right_lines = _wrap(draw, right_text, right_font, USABLE_W - 80, is_cjk)
+    for line in right_lines:
+        lw = _tw(draw, line, right_font)
+        bb = draw.textbbox((0, 0), line, font=right_font)
+        draw.text(((CARD_W - lw) // 2, right_y - bb[1]),
+                  line, font=right_font, fill=GREEN_FILL)
+        right_y += _th(draw, line, right_font) + 10
+    right_y += 14
+
+    # right_ko (흰색, 작게)
+    if right_ko:
+        ko_lines = _wrap(draw, right_ko, ko_font, USABLE_W, is_cjk=True)
+        for ln in ko_lines:
+            lw = _tw(draw, ln, ko_font)
+            bb = draw.textbbox((0, 0), ln, font=ko_font)
+            draw.text(((CARD_W - lw) // 2, right_y - bb[1]),
+                      ln, font=ko_font, fill=main_fill)
+            right_y += _th(draw, ln, ko_font) + 8
+        right_y += 8
+
+    # pronunciation (회색, 더 작게)
+    if pron_text:
+        pb  = draw.textbbox((0, 0), pron_text, font=pron_font)
+        pw  = pb[2] - pb[0]
+        draw.text(((CARD_W - pw) // 2, right_y - pb[1]),
+                  pron_text, font=pron_font, fill=GRAY_FILL)
+
+    # ── 워터마크 ─────────────────────────────────────────────────────
+    wm_font = F.noto_kr(22)
+    wm      = "@langcard.studio"
+    wmw     = _tw(draw, wm, wm_font)
+    draw.text(((CARD_W - wmw) // 2, CARD_H - 38), wm,
+              font=wm_font, fill=(*ts[:3], ts[3] // 2 if len(ts) > 3 else 90))
+
+    # ── 저장 ─────────────────────────────────────────────────────────
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    _date    = date_str or _today_kst().strftime("%Y%m%d")
+    out_path = os.path.join(OUTPUT_DIR, f"wrongright_{lang}_{slot}_{_date}.png")
+    img.convert("RGB").save(out_path, "PNG", optimize=True)
+    print(f"  ✓ WRONG→RIGHT 카드 저장: {out_path}")
+    return out_path
+
+
+def render_cta_card(cta_text: str, lang: str, date_str: str, slot: str,
+                    bg_path: str = None) -> str:
+    """
+    CTA 카드: 저장/댓글 유도 문구 중앙 + 계정 정보 하단.
+    Returns: output/cta_{lang}_{slot}_{date_str}.png
+    """
+    F.ensure_fonts()
+
+    theme  = CARD_THEMES[(lang, slot)]
+    cx     = CARD_W // 2
+
+    # ── 배경 ─────────────────────────────────────────────────────────
+    g = theme["gradient"]
+    bg = _gradient(CARD_W, CARD_H, g[0], g[1], g[2] if len(g) > 2 else None)
+    img = bg.convert("RGBA")
+    if bg_path and os.path.exists(bg_path):
+        img = _apply_bg_image(img, bg_path)
+    img = _dot_overlay(img, theme["text_main"])
+    img = _emoji_bg(img, theme["emoji"])
+    draw = ImageDraw.Draw(img)
+
+    ts        = theme["text_sub"]
+    sub_fill  = (*ts[:3], ts[3] if len(ts) > 3 else 200)
+    main_fill = (*theme["text_main"], 255)
+
+    # ── CTA 텍스트 — 중앙 황금비 배치 ───────────────────────────────
+    cta_font_fn = F.noto_kr
+    cta_font, _ = _fit_font(draw, cta_text, cta_font_fn,
+                            USABLE_W, start=72, stop=36, step=4)
+
+    cta_lines = _wrap(draw, cta_text, cta_font, USABLE_W, is_cjk=True)
+    block_h   = sum(_th(draw, ln, cta_font) + 16 for ln in cta_lines) - 16
+
+    avail_top = 160
+    avail_bot = int(CARD_H * 0.82)   # 계정 정보 위
+    avail_h   = avail_bot - avail_top
+    golden_center = avail_top + int(avail_h * 0.42)
+    y = max(golden_center - block_h // 2, avail_top)
+
+    for line in cta_lines:
+        lw = _tw(draw, line, cta_font)
+        bb = draw.textbbox((0, 0), line, font=cta_font)
+        draw.text(((CARD_W - lw) // 2, y - bb[1]),
+                  line, font=cta_font, fill=main_fill)
+        y += _th(draw, line, cta_font) + 16
+
+    # ── 계정 정보 — 하단 85% ─────────────────────────────────────────
+    acc_text = "@langcard.studio"
+    acc_y    = int(CARD_H * 0.85)
+    acc_font = F.outfit(32)
+    ab       = draw.textbbox((0, 0), acc_text, font=acc_font)
+    aw       = ab[2] - ab[0]
+    draw.text(((CARD_W - aw) // 2, acc_y - ab[1]),
+              acc_text, font=acc_font, fill=sub_fill)
+
+    # ── 워터마크 ─────────────────────────────────────────────────────
+    wm_font = F.noto_kr(22)
+    wm      = "@langcard.studio"
+    wmw     = _tw(draw, wm, wm_font)
+    draw.text(((CARD_W - wmw) // 2, CARD_H - 38), wm,
+              font=wm_font, fill=(*ts[:3], ts[3] // 2 if len(ts) > 3 else 90))
+
+    # ── 저장 ─────────────────────────────────────────────────────────
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    _date    = date_str or _today_kst().strftime("%Y%m%d")
+    out_path = os.path.join(OUTPUT_DIR, f"cta_{lang}_{slot}_{_date}.png")
+    img.convert("RGB").save(out_path, "PNG", optimize=True)
+    print(f"  ✓ CTA 카드 저장: {out_path}")
+    return out_path
