@@ -1553,12 +1553,21 @@ def render_wrong_right_card(data: dict, lang: str, date_str: str, slot: str,
     return out_path
 
 
+def _strip_emoji(text: str) -> str:
+    """이모지 및 비 BMP 문자 제거 (Pillow 폰트 호환성)"""
+    import re
+    return re.sub(
+        r'[\U00010000-\U0010ffff\u2600-\u27bf\u2b50\u2b55\ufe0f\u200d]',
+        '', text).strip()
+
+
 def render_cta_card(cta_text: str, lang: str, date_str: str, slot: str,
                     bg_path: str = None) -> str:
     """
     CTA 카드: 저장/댓글 유도 문구 중앙 + 계정 정보 하단.
     Returns: output/cta_{lang}_{slot}_{date_str}.png
     """
+    cta_text = _strip_emoji(cta_text)
     F.ensure_fonts()
 
     theme  = CARD_THEMES[(lang, slot)]

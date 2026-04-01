@@ -98,7 +98,7 @@ def run(dry_run: bool, slot: str, forced_topic=None) -> None:
     wr_png = card_renderer.render_wrong_right_card(
         hook_data, lang, today, slot=slot, bg_path=bg_path)
     cta_png = card_renderer.render_cta_card(
-        hook_data.get("cta", "이거 몰랐으면 저장 👆"), lang, today,
+        hook_data.get("cta", "이거 몰랐으면 저장해두세요"), lang, today,
         slot=slot, bg_path=bg_path)
 
     # [4] TTS 음성 생성 (한국어 + 타겟 언어 이중 TTS)
