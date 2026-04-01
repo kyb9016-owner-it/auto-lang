@@ -3,7 +3,7 @@ import os
 import time
 from datetime import datetime, timezone, timedelta
 import requests
-from config import LANG_CONFIG, SLOT_CONFIG, HASHTAGS, LANG_HASHTAGS
+from config import LANG_CONFIG, SLOT_CONFIG, HASHTAGS, LANG_HASHTAGS, HOOK_HASHTAGS
 
 BASE_URL = "https://graph.instagram.com/v21.0"
 IG_ID    = os.environ["INSTAGRAM_BUSINESS_ID"]
@@ -106,6 +106,29 @@ def _build_short_reel_caption(lang: str, data: dict, topic: dict) -> str:
         "유용했다면 ❤️ 좋아요 + 💾 저장해두고 오늘 꼭 써보세요!",
         "",
         LANG_HASHTAGS.get(lang, HASHTAGS),
+    ]
+    return "\n".join(lines)
+
+
+def _build_hook_reel_caption(lang: str, data: dict) -> str:
+    """HOOK형 릴스 캡션 (WRONG→RIGHT + CTA)"""
+    lc = LANG_CONFIG[lang]
+
+    lines = [
+        f"{lc['flag']} {lc['name_ko']} — 이 표현 틀리고 있었다면?",
+        "",
+        f"❌  {data['wrong']}",
+        f"✅  {data['right']}  →  {data['right_ko']}",
+    ]
+
+    if data.get("pronunciation"):
+        lines.append(f"({data['pronunciation']})")
+
+    lines += [
+        "",
+        data.get("cta", "이거 몰랐으면 저장 👆"),
+        "",
+        HOOK_HASHTAGS.get(lang, LANG_HASHTAGS.get(lang, HASHTAGS)),
     ]
     return "\n".join(lines)
 
@@ -248,6 +271,29 @@ def post_short_reel(video_url: str, lang: str,
     print(f"  → {lc['name_ko']} 숏릴스 게시 중...")
     media_id = _publish(cid)
     print(f"  ✓ {lc['name_ko']} 숏릴스 완료! media_id: {media_id}")
+    return media_id
+
+
+def post_hook_reel(video_url: str, lang: str, data: dict) -> str:
+    """
+    HOOK형 릴스 포스팅 (WRONG→RIGHT 교정 콘텐츠)
+    Returns: media_id
+    """
+    lc = LANG_CONFIG[lang]
+    caption = _build_hook_reel_caption(lang, data)
+
+    print(f"  → {lc['name_ko']} HOOK 릴스 컨테이너 생성 중... (영상 처리 중)")
+    result = _api("POST", f"{IG_ID}/media", params={
+        "video_url": video_url,
+        "media_type": "REELS",
+        "caption": caption,
+        "share_to_feed": "true",
+    })
+    cid = result["id"]
+    _wait_ready(cid, timeout=300)
+    print(f"  → {lc['name_ko']} HOOK 릴스 게시 중...")
+    media_id = _publish(cid)
+    print(f"  ✓ {lc['name_ko']} HOOK 릴스 완료! media_id: {media_id}")
     return media_id
 
 
