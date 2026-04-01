@@ -229,3 +229,102 @@ def generate_vocab(vocab: list, lang: str, date_str: str,
         return out
 
     return None
+
+
+def generate_hook_tts(data: dict, lang: str, date_str: str,
+                      slot: str = "default") -> Optional[str]:
+    """
+    HOOK형 이중 언어 TTS 생성.
+    한국어 나레이션 + 타겟 언어 WRONG/RIGHT 발음을 조합.
+
+    구조: [KO intro] → [LANG wrong] → [KO bridge] → [LANG right] → [KO outro]
+
+    data: {"wrong": str, "right": str, "tts_parts": {"intro": str, "bridge": str, "outro": str}}
+    Returns: 합성된 오디오 파일 경로 또는 None
+    """
+    from config import KO_TTS_VOICE
+
+    os.makedirs(TTS_DIR, exist_ok=True)
+    out = os.path.join(TTS_DIR, f"hook_{lang}_{slot}_{date_str}.mp3")
+
+    # 캐시 체크
+    cache_text = f"{data['wrong']}|{data['right']}"
+    if os.path.exists(out):
+        if _read_cache_text(out) == cache_text:
+            print(f"  ✓ TTS 캐시 사용: {os.path.basename(out)}")
+            return out
+        print(f"  ↻ TTS 내용 변경됨, 재생성: {os.path.basename(out)}")
+
+    tts_parts = data.get("tts_parts", {})
+    parts = [
+        ("intro", tts_parts.get("intro", "이런 표현을 많이 씁니다"), "ko", KO_TTS_VOICE),
+        ("wrong", data["wrong"], lang, None),  # 타겟 언어 음성 (슬롯별)
+        ("bridge", tts_parts.get("bridge", "올바른 표현은"), "ko", KO_TTS_VOICE),
+        ("right", data["right"], lang, None),
+        ("outro", tts_parts.get("outro", data.get("right_ko", "")), "ko", KO_TTS_VOICE),
+    ]
+
+    part_files = []
+    for i, (label, text, part_lang, voice_override) in enumerate(parts):
+        if not text.strip():
+            continue
+        part_path = os.path.join(TTS_DIR, f"_hook_{lang}_{date_str}_{i}_{label}.mp3")
+
+        if voice_override:
+            # 한국어: 직접 지정 음성
+            try:
+                asyncio.run(_gen_async(text, voice_override, part_path))
+                print(f"  ✓ TTS ({label}): {text[:20]}")
+            except Exception as e:
+                print(f"  ⚠ TTS ({label}) 실패: {e}")
+                continue
+        else:
+            # 타겟 언어: 기존 _generate 함수 사용 (slot-based voice selection)
+            if not _generate(text, part_lang, part_path, slot=slot):
+                continue
+
+        if os.path.exists(part_path):
+            part_files.append(part_path)
+
+    if len(part_files) < 3:
+        print(f"  ⚠ HOOK TTS 파트 부족 ({len(part_files)}/5), 생성 실패")
+        return None
+
+    # 파트 합성
+    ok = _concat_mp3_files(part_files, out)
+
+    # TTS 길이 검증 & 속도 조절 (10초 초과 시)
+    if ok and os.path.exists(out):
+        total_dur = _get_audio_duration(out)
+        if total_dur > 10.0:
+            print(f"  ⚠ TTS 총 {total_dur:.1f}초 > 10초, 속도 조절 시도")
+            sped_up = os.path.join(TTS_DIR, f"_hook_{lang}_{date_str}_fast.mp3")
+            speed_factor = min(1.3, total_dur / 10.0)
+            try:
+                subprocess.run([
+                    "ffmpeg", "-y", "-i", out,
+                    "-filter:a", f"atempo={speed_factor}",
+                    "-c:a", "libmp3lame", "-b:a", "128k",
+                    sped_up, "-loglevel", "error"
+                ], check=True)
+                import shutil
+                shutil.move(sped_up, out)
+                print(f"  ✓ TTS 속도 {speed_factor:.2f}x 적용")
+            except Exception as e:
+                print(f"  ⚠ 속도 조절 실패 (원본 유지): {e}")
+
+    # 임시 파일 정리
+    for fp in part_files:
+        try:
+            os.remove(fp)
+        except OSError:
+            pass
+
+    if ok and os.path.exists(out):
+        size_kb = os.path.getsize(out) // 1024
+        dur = _get_audio_duration(out)
+        print(f"  ✓ HOOK TTS 합성 완료: {os.path.basename(out)} ({dur:.1f}초, {size_kb} KB)")
+        _write_cache_text(out, cache_text)
+        return out
+
+    return None
