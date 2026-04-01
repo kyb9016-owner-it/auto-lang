@@ -107,44 +107,21 @@ def dispatch(slot: str | None, dry_run: bool = False,
         notify.send(f"❌ <b>{label} 슬롯 실패</b>\n{msg}")
         raise RuntimeError(msg)
 
-    topic        = data.get("topic", {})
-    all_data     = data.get("all_data", {})
-    short_reel_urls      = data.get("short_reel_urls", {})
-    collection_card_urls = data.get("collection_card_urls", [])
-    collection_theme     = data.get("collection_theme", {})
-    tts_failed           = data.get("tts_failed", [])
+    hook_data       = data.get("hook_data", {})
+    hook_reel_url   = data.get("hook_reel_url")
+    recap_card_urls = data.get("recap_card_urls", [])
+    resp_lang       = data.get("lang", "en")
 
-    print(f"  ✓ Worker 완료: 릴스 {len(short_reel_urls)}개, "
-          f"캐러셀 {len(collection_card_urls)}장")
-
-    # TTS 실패 알림 (무음 릴스 업로드 예정임을 운영자에게 통보)
-    if tts_failed:
-        flags = " ".join(_LANG_FLAG.get(l, l.upper()) for l in tts_failed)
-        notify.send(
-            f"⚠️ <b>{label} TTS 실패 — 무음 릴스</b>\n"
-            f"언어: {flags} ({', '.join(tts_failed)})\n"
-            f"음성 오류 / 재시도 필요 시 /{label} 재전송"
-        )
+    flag = _LANG_FLAG.get(resp_lang, "")
+    print(f"  ✓ Worker 완료: {flag} HOOK 릴스 1개"
+          + (f", 리캡 {len(recap_card_urls)}장" if recap_card_urls else ""))
 
     # ── [🔔 2] Worker 완료 + 표현 미리보기 ──────────────────────────────────
-    topic_text = ""
-    if topic:
-        t_emoji = topic.get("emoji", "")
-        t_ko    = topic.get("topic_ko", "")
-        topic_text = f"\n주제: {t_emoji} {t_ko}"
-
-    expr_lines = []
-    for lang in ("en", "zh", "ja"):
-        if lang in all_data:
-            flag = _LANG_FLAG.get(lang, "")
-            expr = all_data[lang].get("main_expression", "")
-            if expr:
-                expr_lines.append(f"{flag} {expr}")
-
-    expr_preview = "\n".join(expr_lines)
+    wrong = hook_data.get("wrong", "")
+    right = hook_data.get("right", "")
     notify.send(
-        f"📦 <b>콘텐츠 생성 완료</b>{topic_text}\n\n"
-        + (expr_preview if expr_preview else "(표현 없음)")
+        f"📦 <b>HOOK 콘텐츠 생성 완료</b>\n\n"
+        f"{flag} ❌ {wrong}\n{flag} ✅ {right}"
     )
 
     if dry_run:
@@ -159,41 +136,32 @@ def dispatch(slot: str | None, dry_run: bool = False,
     reel_count     = 0
     carousel_count = 0
 
-    # 8-a) 컬렉션 캐러셀 — 이벤트/단일 언어는 생략
-    if collection_card_urls and not custom_topic and not lang_filter:
+    # 8-a) 리캡 캐러셀
+    if recap_card_urls:
         try:
-            instagram.post_collection_carousel(collection_card_urls, collection_theme)
+            instagram.post_recap_carousel(recap_card_urls, {}, {})
             carousel_count += 1
-            # ── [🔔 3] 캐러셀 완료 ──────────────────────────────────────────
-            theme_name = collection_theme.get("title_ko", "컬렉션")
-            notify.send(f"📸 <b>컬렉션 캐러셀 업로드 완료</b> ✅\n{theme_name} ({len(collection_card_urls)}장)")
+            notify.send(f"📸 <b>리캡 캐러셀 업로드 완료</b> ✅ ({len(recap_card_urls)}장)")
             time.sleep(8)
         except Exception as e:
-            notify.send(f"⚠️ <b>컬렉션 캐러셀 실패</b> (건너뜀)\n<code>{e}</code>")
-            print(f"  ⚠ 컬렉션 캐러셀 포스팅 실패 (건너뜀): {e}")
+            notify.send(f"⚠️ <b>리캡 캐러셀 실패</b> (건너뜀)\n<code>{e}</code>")
+            print(f"  ⚠ 리캡 캐러셀 포스팅 실패 (건너뜀): {e}")
 
-    # 8-b) 언어별 숏릴스 (en → zh → ja)
-    from story_dispatcher import enqueue_story
-    langs_order = [l for l in ("en", "zh", "ja") if l in short_reel_urls]
-    for i, lang in enumerate(langs_order):
-        flag = _LANG_FLAG.get(lang, lang.upper())
+    # 8-b) HOOK 릴스 1개
+    if hook_reel_url:
         try:
-            instagram.post_short_reel(
-                short_reel_urls[lang], lang, all_data[lang], topic)
+            instagram.post_hook_reel(hook_reel_url, resp_lang, hook_data)
             reel_count += 1
-            # ── [🔔 4] 언어별 릴스 완료 ─────────────────────────────────────
-            notify.send(f"🎬 <b>{flag} {lang.upper()} 릴스 업로드 완료</b> ✅")
+            notify.send(f"🎬 <b>{flag} HOOK 릴스 업로드 완료</b> ✅")
 
-            # 릴스 포스팅 성공 → 1시간 후 스토리 공유 예약
+            from story_dispatcher import enqueue_story
             try:
-                enqueue_story(short_reel_urls[lang], lang, delay_hours=1.0)
+                enqueue_story(hook_reel_url, resp_lang, delay_hours=1.0)
             except Exception as eq_err:
-                print(f"  ⚠ [{lang}] 스토리 예약 실패 (건너뜀): {eq_err}")
-            if i < len(langs_order) - 1:
-                time.sleep(8)
+                print(f"  ⚠ 스토리 예약 실패 (건너뜀): {eq_err}")
         except Exception as e:
-            notify.send(f"❌ <b>{flag} {lang.upper()} 릴스 포스팅 실패</b>\n<code>{e}</code>")
-            print(f"  ✗ {lang} 릴스 포스팅 실패: {e}")
+            notify.send(f"❌ <b>{flag} HOOK 릴스 포스팅 실패</b>\n<code>{e}</code>")
+            print(f"  ✗ HOOK 릴스 포스팅 실패: {e}")
 
     # ── [🔔 5] 전체 완료 요약 ────────────────────────────────────────────────
     elapsed = int(time.time() - t_start)
@@ -201,8 +169,8 @@ def dispatch(slot: str | None, dry_run: bool = False,
     total = reel_count + carousel_count
     notify.send(
         f"✅ <b>{label} 포스팅 완료!</b>\n"
-        f"릴스 {reel_count}개"
-        + (f" + 캐러셀 {carousel_count}개" if carousel_count else "")
+        f"HOOK 릴스 {reel_count}개"
+        + (f" + 리캡 {carousel_count}개" if carousel_count else "")
         + f"\n소요시간: {mins}분 {secs}초"
     )
 
