@@ -92,3 +92,42 @@ def mark_slot_posted(date_str: str, slot: str) -> None:
         if old_date < cutoff:
             del posted[old_date]
     _save(data)
+
+
+# ── HOOK 히스토리 (wrong/right 쌍 관리) ──────────────────────────────────
+
+def get_recent_hook(lang: str) -> list[str]:
+    """최근 HOOK wrong 표현 목록 반환"""
+    data = _load()
+    hook_key = f"{lang}_hook"
+    entries = data.get(hook_key, [])[-HISTORY_MAX:]
+    return [e["wrong"] for e in entries if isinstance(e, dict)]
+
+
+def is_hook_duplicate(lang: str, wrong: str) -> bool:
+    """HOOK wrong 표현이 히스토리에 있으면 True"""
+    recent_wrongs = get_recent_hook(lang)
+    if not recent_wrongs:
+        return False
+
+    if wrong in set(recent_wrongs):
+        return True
+
+    norm_new = _normalize(wrong)
+    for hist_wrong in recent_wrongs:
+        ratio = SequenceMatcher(None, norm_new, _normalize(hist_wrong)).ratio()
+        if ratio >= HISTORY_SIMILARITY_THRESHOLD:
+            return True
+
+    return False
+
+
+def add_hook(lang: str, wrong: str, right: str) -> None:
+    """HOOK wrong/right 쌍 저장"""
+    data = _load()
+    hook_key = f"{lang}_hook"
+    if hook_key not in data:
+        data[hook_key] = []
+    data[hook_key].append({"wrong": wrong, "right": right})
+    data[hook_key] = data[hook_key][-HISTORY_MAX:]
+    _save(data)
