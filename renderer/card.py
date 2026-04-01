@@ -1373,10 +1373,11 @@ def render_hook_card(hook_text: str, lang: str, date_str: str, slot: str,
     draw = ImageDraw.Draw(img)
 
     ts        = theme["text_sub"]
-    sub_fill  = (*ts[:3], ts[3] if len(ts) > 3 else 200)
-    main_fill = (*theme["text_main"], 255)
+    sub_fill  = (200, 200, 200, 200)
+    main_fill = (255, 255, 255, 255)
 
     # ── HOOK 텍스트 — 중앙 황금비 배치 ──────────────────────────────
+    hook_text    = _strip_emoji(hook_text)
     hook_font_fn = F.noto_kr
     # 텍스트 너비에 맞게 폰트 크기 자동 조절
     hook_font, _ = _fit_font(draw, hook_text, hook_font_fn,
@@ -1389,8 +1390,20 @@ def render_hook_card(hook_text: str, lang: str, date_str: str, slot: str,
     avail_bot = CARD_H - 80
     avail_h   = avail_bot - avail_top
     golden_center = avail_top + int(avail_h * 0.42)
-    y = max(golden_center - block_h // 2, avail_top)
+    text_y = max(golden_center - block_h // 2, avail_top)
 
+    # 텍스트 블록 뒤 반투명 다크 배경 박스
+    box_padding = 40
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    overlay_draw.rounded_rectangle(
+        [PAD - box_padding, text_y - box_padding,
+         CARD_W - PAD + box_padding, text_y + block_h + box_padding],
+        radius=20, fill=(0, 0, 0, 140))
+    img = Image.alpha_composite(img, overlay)
+    draw = ImageDraw.Draw(img)
+
+    y = text_y
     for line in hook_lines:
         lw = _tw(draw, line, hook_font)
         bb = draw.textbbox((0, 0), line, font=hook_font)
@@ -1443,13 +1456,13 @@ def render_wrong_right_card(data: dict, lang: str, date_str: str, slot: str,
     draw = ImageDraw.Draw(img)
 
     ts        = theme["text_sub"]
-    sub_fill  = (*ts[:3], ts[3] if len(ts) > 3 else 200)
-    main_fill = (*theme["text_main"], 255)
+    sub_fill  = (200, 200, 200, 200)
+    main_fill = (255, 255, 255, 255)
 
     # ── 색상 상수 ─────────────────────────────────────────────────────
     RED_FILL   = (255, 107, 107, 255)   # #FF6B6B
     GREEN_FILL = (81, 207, 102, 255)    # #51CF66
-    GRAY_FILL  = (*ts[:3], 180)
+    GRAY_FILL  = (200, 200, 200, 180)
 
     font_fn   = _main_font_fn(lang)
 
@@ -1466,11 +1479,22 @@ def render_wrong_right_card(data: dict, lang: str, date_str: str, slot: str,
     ko_font   = F.noto_kr(40)
     pron_font = F.noto_kr(32)
 
-    # ── WRONG 구역 (y ~25% = 337) ────────────────────────────────────
+    # ── WRONG 구역 — 반투명 배경 박스 ────────────────────────────────
+    wrong_y_start = int(CARD_H * 0.18)
+    wrong_section_h = int(CARD_H * 0.28)
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    overlay_draw.rounded_rectangle(
+        [PAD - 20, wrong_y_start - 20,
+         CARD_W - PAD + 20, wrong_y_start + wrong_section_h + 20],
+        radius=20, fill=(0, 0, 0, 140))
+    img = Image.alpha_composite(img, overlay)
+    draw = ImageDraw.Draw(img)
+
     wrong_y = int(CARD_H * 0.22)
 
-    # ❌ 레이블
-    x_label     = "❌ 틀린 표현"
+    # 틀린 표현 레이블 (이모지 없이)
+    x_label     = "틀린 표현"
     x_label_f   = F.noto_kr(30)
     xlb         = draw.textbbox((0, 0), x_label, font=x_label_f)
     xlw         = xlb[2] - xlb[0]
@@ -1495,13 +1519,24 @@ def render_wrong_right_card(data: dict, lang: str, date_str: str, slot: str,
     # 구분선
     sep_y = int(CARD_H * 0.48)
     draw.line([(PAD, sep_y), (CARD_W - PAD, sep_y)],
-              fill=(*theme["text_main"], 40), width=1)
+              fill=(255, 255, 255, 40), width=1)
 
-    # ── RIGHT 구역 (y ~55% = 742) ────────────────────────────────────
+    # ── RIGHT 구역 — 반투명 배경 박스 ────────────────────────────────
+    right_y_start = int(CARD_H * 0.50)
+    right_section_h = int(CARD_H * 0.40)
+    overlay2 = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    overlay_draw2 = ImageDraw.Draw(overlay2)
+    overlay_draw2.rounded_rectangle(
+        [PAD - 20, right_y_start - 20,
+         CARD_W - PAD + 20, right_y_start + right_section_h + 20],
+        radius=20, fill=(0, 0, 0, 140))
+    img = Image.alpha_composite(img, overlay2)
+    draw = ImageDraw.Draw(img)
+
     right_y = int(CARD_H * 0.53)
 
-    # ✅ 레이블
-    v_label   = "✅ 올바른 표현"
+    # 올바른 표현 레이블 (이모지 없이)
+    v_label   = "올바른 표현"
     v_label_f = F.noto_kr(30)
     vlb       = draw.textbbox((0, 0), v_label, font=v_label_f)
     vlw       = vlb[2] - vlb[0]
@@ -1584,8 +1619,8 @@ def render_cta_card(cta_text: str, lang: str, date_str: str, slot: str,
     draw = ImageDraw.Draw(img)
 
     ts        = theme["text_sub"]
-    sub_fill  = (*ts[:3], ts[3] if len(ts) > 3 else 200)
-    main_fill = (*theme["text_main"], 255)
+    sub_fill  = (200, 200, 200, 200)
+    main_fill = (255, 255, 255, 255)
 
     # ── CTA 텍스트 — 중앙 황금비 배치 ───────────────────────────────
     cta_font_fn = F.noto_kr
@@ -1599,8 +1634,20 @@ def render_cta_card(cta_text: str, lang: str, date_str: str, slot: str,
     avail_bot = int(CARD_H * 0.82)   # 계정 정보 위
     avail_h   = avail_bot - avail_top
     golden_center = avail_top + int(avail_h * 0.42)
-    y = max(golden_center - block_h // 2, avail_top)
+    text_y = max(golden_center - block_h // 2, avail_top)
 
+    # 텍스트 블록 뒤 반투명 다크 배경 박스
+    box_padding = 40
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    overlay_draw.rounded_rectangle(
+        [PAD - box_padding, text_y - box_padding,
+         CARD_W - PAD + box_padding, text_y + block_h + box_padding],
+        radius=20, fill=(0, 0, 0, 140))
+    img = Image.alpha_composite(img, overlay)
+    draw = ImageDraw.Draw(img)
+
+    y = text_y
     for line in cta_lines:
         lw = _tw(draw, line, cta_font)
         bb = draw.textbbox((0, 0), line, font=cta_font)
