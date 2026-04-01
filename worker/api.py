@@ -195,15 +195,22 @@ def run_job(req: JobRequest, creds=Security(_verify)):
     print(f"[Worker] {topic['emoji']} {topic['topic_ko']}  |  langs={langs}  dry_run={req.dry_run}")
     print(f"{'='*54}")
 
+    t_job = time.time()
+    step_times: dict[str, float] = {}
+
     # ── Step 1: 폰트 ────────────────────────────────────────────────────────
     print("\n[1/7] 폰트 확인")
+    t0 = time.time()
     try:
         F.ensure_fonts()
     except Exception as e:
         print(f"  ⚠ 폰트 오류 (계속): {e}")
+    step_times["step1_fonts"] = time.time() - t0
+    print(f"  ⏱ Step 1: {step_times['step1_fonts']:.1f}s")
 
     # ── Step 2: 표현 생성 (프리페치 폴백) ────────────────────────────────────
     print(f"\n[2/7] Claude API 표현 생성")
+    t0 = time.time()
     all_data: dict[str, dict] = {}
 
     for lang in langs:
@@ -224,6 +231,9 @@ def run_job(req: JobRequest, creds=Security(_verify)):
     if not all_data:
         raise HTTPException(status_code=503, detail="표현 생성 전체 실패")
 
+    step_times["step2_claude"] = time.time() - t0
+    print(f"  ⏱ Step 2: {step_times['step2_claude']:.1f}s")
+
     # 오늘 데이터 JSON 저장 (일반 슬롯만, 이벤트는 저장 안 함)
     if not req.custom_topic:
         slot_key  = req.slot or "daily"
@@ -231,10 +241,18 @@ def run_job(req: JobRequest, creds=Security(_verify)):
         with open(data_json, "w", encoding="utf-8") as f:
             json.dump({"topic": topic, "data": all_data}, f, ensure_ascii=False, indent=2)
         print(f"  ✓ 데이터 저장: {data_json}")
-        _try_prefetch_tomorrow(langs, output_dir, all_data)
+        # 프리페치: 이미 5분 이상 걸렸으면 스킵 (타임아웃 방지)
+        t_prefetch = time.time()
+        if time.time() - t_job < 300:
+            _try_prefetch_tomorrow(langs, output_dir, all_data)
+        else:
+            print(f"  ⚠ 프리페치 스킵 (이미 {time.time() - t_job:.0f}s 경과)")
+        step_times["prefetch"] = time.time() - t_prefetch
+        print(f"  ⏱ 프리페치: {step_times['prefetch']:.1f}s")
 
     # ── Step 3: 카드 렌더링 ─────────────────────────────────────────────────
     print(f"\n[3/7] 카드 이미지 렌더링")
+    t0 = time.time()
     image_paths: dict[str, str] = {}
     vocab_paths: dict[str, str] = {}
     for lang in list(all_data.keys()):
@@ -250,9 +268,12 @@ def run_job(req: JobRequest, creds=Security(_verify)):
         except Exception as e:
             print(f"  ✗ {lang} 렌더링 실패 (건너뜀): {e}")
             all_data.pop(lang, None)
+    step_times["step3_render"] = time.time() - t0
+    print(f"  ⏱ Step 3: {step_times['step3_render']:.1f}s")
 
     # ── Step 4: TTS ─────────────────────────────────────────────────────────
     print(f"\n[4/7] TTS 음성 생성")
+    t0 = time.time()
     expr_tts:  dict[str, str | None] = {}
     vocab_tts: dict[str, str | None] = {}
     for lang in image_paths:
@@ -273,10 +294,12 @@ def run_job(req: JobRequest, creds=Security(_verify)):
             print(f"  ✓ {lang}: TTS 생성 완료")
         else:
             print(f"  ⚠ {lang}: TTS 실패 — 무음 릴스로 진행")
+    step_times["step4_tts"] = time.time() - t0
+    print(f"  ⏱ Step 4: {step_times['step4_tts']:.1f}s")
 
     # ── Step 5: 숏릴스 MP4 ─────────────────────────────────────────────────
     print(f"\n[5/7] 숏릴스 생성")
-
+    t0 = time.time()
     short_reel_paths: dict[str, str] = {}
     for lang in image_paths:
         try:
@@ -289,9 +312,12 @@ def run_job(req: JobRequest, creds=Security(_verify)):
             print(f"  ✓ {lang}: {os.path.basename(path)}")
         except Exception as e:
             print(f"  ✗ {lang} 숏릴스 실패 (건너뜀): {e}")
+    step_times["step5_reels"] = time.time() - t0
+    print(f"  ⏱ Step 5: {step_times['step5_reels']:.1f}s")
 
     # ── Step 6: 컬렉션 캐러셀 생성 (아침 슬롯만) ────────────────────────────
     print(f"\n[6/7] 컬렉션 캐러셀 생성")
+    t0 = time.time()
     collection_pngs: list[str]             = []
     collection_meta: list[tuple[str, str]] = []   # (lang, suffix)
     coll_theme: dict = {}
@@ -335,10 +361,13 @@ def run_job(req: JobRequest, creds=Security(_verify)):
             print(f"  → 단일 언어 모드: 캐러셀 생략")
         else:
             print(f"  → {req.slot or 'daily'} 슬롯: 캐러셀은 morning 슬롯에서만 생성")
+    step_times["step6_carousel"] = time.time() - t0
+    print(f"  ⏱ Step 6: {step_times['step6_carousel']:.1f}s")
 
     # ── dry-run 종료 ─────────────────────────────────────────────────────────
     if req.dry_run:
         print("\n[dry-run] Cloudinary 업로드 생략")
+        print(f"\n✅ Worker 완료 (dry-run): 릴스 {len(short_reel_paths)}개, 캐러셀 {len(collection_pngs)}장  ⏱ 총 {time.time() - t_job:.0f}s")
         return {
             "status": "dry_run",
             "today": today,
@@ -349,11 +378,13 @@ def run_job(req: JobRequest, creds=Security(_verify)):
             "collection_pngs_count": len(collection_pngs),
             "short_reel_urls": {},
             "collection_card_urls": [],
+            "step_times": step_times,
             "dry_run": True,
         }
 
     # ── Step 7: Cloudinary 업로드 ────────────────────────────────────────────
     print(f"\n[7/7] Cloudinary 업로드")
+    t0 = time.time()
     short_reel_urls: dict[str, str] = {}
     for lang, path in short_reel_paths.items():
         try:
@@ -374,10 +405,13 @@ def run_job(req: JobRequest, creds=Security(_verify)):
             except Exception as e:
                 print(f"  ⚠ 컬렉션 슬라이드 {i+1} 업로드 실패: {e}")
 
+    step_times["step7_upload"] = time.time() - t0
+    print(f"  ⏱ Step 7: {step_times['step7_upload']:.1f}s")
+
     tts_failed = [lang for lang, p in expr_tts.items() if p is None]
     if tts_failed:
         print(f"  ⚠ TTS 실패 언어: {tts_failed}")
-    print(f"\n✅ Worker 완료: 릴스 {len(short_reel_urls)}개, 캐러셀 {len(collection_card_urls)}장")
+    print(f"\n✅ Worker 완료: 릴스 {len(short_reel_urls)}개, 캐러셀 {len(collection_card_urls)}장  ⏱ 총 {time.time() - t_job:.0f}s")
 
     return {
         "status": "ok",
@@ -389,6 +423,7 @@ def run_job(req: JobRequest, creds=Security(_verify)):
         "short_reel_urls": short_reel_urls,
         "collection_card_urls": collection_card_urls,
         "tts_failed": tts_failed,
+        "step_times": step_times,
         "dry_run": False,
     }
 

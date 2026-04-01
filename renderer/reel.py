@@ -60,7 +60,7 @@ def _make_segment(padded_png: str, audio_path: Optional[str],
                      "-filter_complex", f"[1:a]apad=pad_dur={duration},atrim=0:{duration}[a]",
                      "-map", "0:v", "-map", "[a]",
                      "-vf", "fps=30,format=yuv420p",
-                     "-c:v", "libx264", "-preset", "slow", "-crf", "12",
+                     "-c:v", "libx264", "-preset", "medium", "-crf", "18",
                      "-c:a", "aac", "-b:a", "128k",
                      "-movflags", "+faststart"]
     else:
@@ -68,7 +68,7 @@ def _make_segment(padded_png: str, audio_path: Optional[str],
         base_cmd += ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
                      "-map", "0:v", "-map", "1:a",
                      "-vf", "fps=30,format=yuv420p",
-                     "-c:v", "libx264", "-preset", "slow", "-crf", "12",
+                     "-c:v", "libx264", "-preset", "medium", "-crf", "18",
                      "-c:a", "aac", "-b:a", "128k",
                      "-t", str(duration),
                      "-movflags", "+faststart"]

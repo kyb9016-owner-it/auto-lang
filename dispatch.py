@@ -30,7 +30,7 @@ import notify
 
 WORKER_URL    = os.environ.get("WORKER_URL", "http://localhost:8000")
 WORKER_SECRET = os.environ.get("WORKER_SECRET", "")
-TIMEOUT       = 600   # 10분 (렌더링+TTS+ffmpeg 포함)
+TIMEOUT       = 900   # 15분 (렌더링+TTS+ffmpeg 포함)
 
 _SLOT_EMOJI = {
     "morning": "🌅",
