@@ -24,6 +24,7 @@ load_dotenv(Path(__file__).parent / ".env", override=True)
 
 import requests
 
+import pipeline
 from uploader import instagram
 import notify
 
@@ -139,7 +140,7 @@ def dispatch(slot: str | None, dry_run: bool = False,
     # 8-a) 리캡 캐러셀
     if recap_card_urls:
         try:
-            instagram.post_recap_carousel(recap_card_urls, {}, {})
+            pipeline.post_recap(recap_card_urls)
             carousel_count += 1
             notify.send(f"📸 <b>리캡 캐러셀 업로드 완료</b> ✅ ({len(recap_card_urls)}장)")
             time.sleep(8)
@@ -150,15 +151,9 @@ def dispatch(slot: str | None, dry_run: bool = False,
     # 8-b) HOOK 릴스 1개
     if hook_reel_url:
         try:
-            instagram.post_hook_reel(hook_reel_url, resp_lang, hook_data)
+            pipeline.post_hook_reel_and_story(hook_reel_url, resp_lang, hook_data)
             reel_count += 1
             notify.send(f"🎬 <b>{flag} HOOK 릴스 업로드 완료</b> ✅")
-
-            from story_dispatcher import enqueue_story
-            try:
-                enqueue_story(hook_reel_url, resp_lang, delay_hours=1.0)
-            except Exception as eq_err:
-                print(f"  ⚠ 스토리 예약 실패 (건너뜀): {eq_err}")
         except Exception as e:
             notify.send(f"❌ <b>{flag} HOOK 릴스 포스팅 실패</b>\n<code>{e}</code>")
             print(f"  ✗ HOOK 릴스 포스팅 실패: {e}")

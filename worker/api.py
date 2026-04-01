@@ -34,12 +34,7 @@ from pydantic import BaseModel
 
 from config import LANGUAGES, TOPIC_CONFIG, COLLECTION_THEMES, get_today_topic, _today_kst, SLOT_LANG_MAP
 from generator import claude_gen, history as hist_module
-from renderer import card as card_renderer
-from renderer import fonts as F
-from renderer import reel as reel_renderer
-from fetcher.unsplash import fetch_city_bg
-from renderer import tts_gen
-from uploader import cloudinary_up
+import pipeline
 
 # ── 앱 초기화 ─────────────────────────────────────────────────────────────────
 
@@ -187,141 +182,45 @@ def run_job(req: JobRequest, creds=Security(_verify)):
     output_dir = _output_path()
     slot       = req.slot or "morning"
 
-    # 슬롯 → 단일 언어
-    lang = SLOT_LANG_MAP.get(slot, "en")
-
-    print(f"\n{'='*54}")
-    print(f"[Worker HOOK] {slot} → {lang}  dry_run={req.dry_run}")
-    print(f"{'='*54}")
-
     t_job = time.time()
-    step_times: dict[str, float] = {}
 
-    # Step 1: 폰트
-    print("\n[1/7] 폰트 확인")
-    t0 = time.time()
     try:
-        F.ensure_fonts()
-    except Exception as e:
-        print(f"  ⚠ 폰트 오류 (계속): {e}")
-    step_times["step1_fonts"] = time.time() - t0
+        result = pipeline.run_generation(
+            slot=slot,
+            today=today,
+            yesterday=yesterday,
+            output_dir=output_dir,
+            dry_run=req.dry_run,
+            track_times=True,
+            topic=topic,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
-    # Step 2: HOOK 표현 생성
-    print(f"\n[2/7] Claude API HOOK 표현 생성 ({lang})")
-    t0 = time.time()
-    try:
-        hook_data = claude_gen.generate_hook(lang)
-        print(f"  ✓ WRONG: {hook_data['wrong']}")
-        print(f"  ✓ RIGHT: {hook_data['right']}")
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"HOOK 생성 실패: {e}")
-    step_times["step2_claude"] = time.time() - t0
-
-    # 데이터 JSON 저장
-    data_json = os.path.join(output_dir, f"data_{slot}_{today}.json")
-    with open(data_json, "w", encoding="utf-8") as f:
-        json.dump({"slot": slot, "lang": lang, "data": hook_data},
-                  f, ensure_ascii=False, indent=2)
-
-    # Step 3: HOOK 카드 렌더링 (3장)
-    print(f"\n[3/7] HOOK 카드 렌더링")
-    t0 = time.time()
-    bg_path = fetch_city_bg(lang, slot)
-
-    hook_png = card_renderer.render_hook_card(
-        hook_data["hook"], lang, today, slot=slot, bg_path=bg_path)
-    wr_png = card_renderer.render_wrong_right_card(
-        hook_data, lang, today, slot=slot, bg_path=bg_path)
-    cta_png = card_renderer.render_cta_card(
-        hook_data.get("cta", "이거 몰랐으면 저장해두세요"), lang, today,
-        slot=slot, bg_path=bg_path)
-    step_times["step3_render"] = time.time() - t0
-
-    # Step 4: 이중 언어 TTS
-    print(f"\n[4/7] TTS 음성 생성")
-    t0 = time.time()
-    hook_tts = tts_gen.generate_hook_tts(hook_data, lang, today, slot=slot)
-    step_times["step4_tts"] = time.time() - t0
-
-    # Step 5: HOOK 릴스 합성
-    print(f"\n[5/7] HOOK 릴스 합성")
-    t0 = time.time()
-    hook_reel_path = reel_renderer.render_hook_reel(
-        hook_png, wr_png, cta_png, hook_tts, lang, today, slot=slot)
-    step_times["step5_reels"] = time.time() - t0
-
-    # Step 6: 리캡 캐러셀 (유지 — 간소화)
-    print(f"\n[6/7] 전날 리캡 캐러셀 준비")
-    t0 = time.time()
-    recap_pngs = []
-    recap_meta = []
-    try:
-        import glob as _glob
-        yest_data_files = sorted(_glob.glob(
-            os.path.join(output_dir, f"data_*_{yesterday}.json")))
-        if yest_data_files:
-            for yf in yest_data_files:
-                with open(yf, "r", encoding="utf-8") as f:
-                    saved = json.load(f)
-                wr_card = os.path.join(output_dir,
-                    f"wrongright_{saved.get('lang', '')}_{saved.get('slot', '')}_{yesterday}.png")
-                if os.path.exists(wr_card):
-                    recap_pngs.append(wr_card)
-                    recap_meta.append((saved.get('lang', 'all'), f"wr_{saved.get('slot', '')}"))
-            if recap_pngs:
-                cover_path = card_renderer.render_recap_cover({}, topic, yesterday)
-                recap_pngs.insert(0, cover_path)
-                recap_meta.insert(0, ("all", "cover"))
-                print(f"  ✓ 리캡 카드 {len(recap_pngs)}장 준비")
-            else:
-                print(f"  ⚠ 전날 WRONG→RIGHT 카드 없음")
-        else:
-            print(f"  ⚠ 전날 데이터 없음")
-    except Exception as e:
-        print(f"  ⚠ 리캡 준비 실패: {e}")
-    step_times["step6_carousel"] = time.time() - t0
-
-    # dry-run
     if req.dry_run:
         print(f"\n✅ Worker 완료 (dry-run)  ⏱ 총 {time.time() - t_job:.0f}s")
         return {
             "status": "dry_run",
             "today": today,
-            "slot": slot,
-            "lang": lang,
-            "hook_data": hook_data,
+            "slot": result.slot,
+            "lang": result.lang,
+            "hook_data": result.hook_data,
             "hook_reel_url": None,
             "recap_card_urls": [],
-            "step_times": step_times,
+            "step_times": result.step_times,
             "dry_run": True,
         }
 
-    # Step 7: Cloudinary 업로드
-    print(f"\n[7/7] Cloudinary 업로드")
-    t0 = time.time()
-    hook_reel_url = cloudinary_up.upload_video(hook_reel_path, f"hook_{lang}", today)
-
-    recap_card_urls = []
-    if recap_pngs:
-        for i, (png, (lng, sfx)) in enumerate(zip(recap_pngs, recap_meta)):
-            try:
-                url = cloudinary_up.upload(png, lng, "recap", suffix=sfx, date_str=yesterday)
-                recap_card_urls.append(url)
-            except Exception as e:
-                print(f"  ⚠ 리캡 {i} 업로드 실패: {e}")
-    step_times["step7_upload"] = time.time() - t0
-
     print(f"\n✅ Worker 완료  ⏱ 총 {time.time() - t_job:.0f}s")
-
     return {
         "status": "ok",
         "today": today,
-        "slot": slot,
-        "lang": lang,
-        "hook_data": hook_data,
-        "hook_reel_url": hook_reel_url,
-        "recap_card_urls": recap_card_urls,
-        "step_times": step_times,
+        "slot": result.slot,
+        "lang": result.lang,
+        "hook_data": result.hook_data,
+        "hook_reel_url": result.hook_reel_url,
+        "recap_card_urls": result.recap_card_urls,
+        "step_times": result.step_times,
         "dry_run": False,
     }
 
