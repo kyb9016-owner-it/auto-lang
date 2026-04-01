@@ -102,6 +102,16 @@ TTS_VOICES = {
     },
 }
 
+# ── 슬롯-언어 매핑 (HOOK 릴스용) ──────────────────────────────────────────
+SLOT_LANG_MAP = {
+    "morning": "en",
+    "lunch":   "zh",
+    "evening": "ja",
+}
+
+# ── 한국어 TTS 음성 (HOOK 나레이션용) ─────────────────────────────────────
+KO_TTS_VOICE = "ko-KR-SunHiNeural"
+
 # ── 언어별 해시태그 (개별 포스팅용) ─────────────────────────────────────────
 # 전략: 초경쟁 광범위 태그 제거 → 중간 규모 niche 태그 집중 (10개 내외)
 LANG_HASHTAGS = {
@@ -119,6 +129,25 @@ LANG_HASHTAGS = {
         "#일본어회화 #일본어공부 #오늘의일본어 #일본어표현 "
         "#dailyjapanese #japanesephrase #learnjapanese "
         "#외국어공부 #공부스타그램 #langcard"
+    ),
+}
+
+# ── HOOK 릴스용 해시태그 (틀린표현 교정 콘텐츠) ────────────────────────────
+HOOK_HASHTAGS = {
+    "en": (
+        "#영어공부 #영어표현 #영어회화 #틀리기쉬운영어 "
+        "#영어실수 #영어교정 #dailyenglish #commonmistakes "
+        "#외국어공부 #langcard"
+    ),
+    "zh": (
+        "#중국어공부 #중국어표현 #중국어회화 #틀리기쉬운중국어 "
+        "#중국어실수 #중국어교정 #dailychinese #chinesemistakes "
+        "#외국어공부 #langcard"
+    ),
+    "ja": (
+        "#일본어공부 #일본어표현 #일본어회화 #틀리기쉬운일본어 "
+        "#일본어실수 #일본어교정 #dailyjapanese #japanesemistakes "
+        "#외국어공부 #langcard"
     ),
 }
 
