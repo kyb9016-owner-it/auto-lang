@@ -276,8 +276,8 @@ def render_hook_reel(hook_png: str, wrongright_png: str, cta_png: str,
                      lang: str, date_str: str,
                      slot: str = "daily") -> str:
     """
-    HOOK 릴스: [HOOK 2초] → [WRONG→RIGHT 10초 + TTS] → [CTA 3초]
-    = 총 15초
+    HOOK 릴스: [HOOK 2초] → [WRONG→RIGHT (TTS 길이+1초) + TTS] → [CTA 3초]
+    릴스 총 길이는 TTS에 따라 유동적 (13~20초).
     Returns: output/hook_{lang}_{slot}_{date_str}.mp4
     """
     os.makedirs(FRAMES_DIR, exist_ok=True)
@@ -291,12 +291,12 @@ def render_hook_reel(hook_png: str, wrongright_png: str, cta_png: str,
     _make_segment(padded_hook, None, 2.0, seg_hook)
     segments.append(seg_hook)
 
-    # ── WRONG→RIGHT 카드 (TTS 기반 길이, 최소 8초 최대 11초) ──────────
+    # ── WRONG→RIGHT 카드 (TTS 길이 + 여유, 속도 조절 없음) ─────────
     padded_wr = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_wr.png")
     _pad_to_9_16(wrongright_png, padded_wr)
 
     tts_dur = _get_audio_duration(tts_path) if tts_path else 0.0
-    wr_duration = max(8.0, min(11.0, tts_dur + 1.0))
+    wr_duration = max(8.0, tts_dur + 1.5)  # TTS 길이 + 1.5초 여유, 상한 없음
 
     seg_wr = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_seg_wr.mp4")
     _make_segment(padded_wr, tts_path, wr_duration, seg_wr)

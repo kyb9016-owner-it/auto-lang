@@ -294,26 +294,6 @@ def generate_hook_tts(data: dict, lang: str, date_str: str,
     # 파트 합성
     ok = _concat_mp3_files(part_files, out)
 
-    # TTS 길이 검증 & 속도 조절 (10초 초과 시)
-    if ok and os.path.exists(out):
-        total_dur = _get_audio_duration(out)
-        if total_dur > 10.0:
-            print(f"  ⚠ TTS 총 {total_dur:.1f}초 > 10초, 속도 조절 시도")
-            sped_up = os.path.join(TTS_DIR, f"_hook_{lang}_{date_str}_fast.mp3")
-            speed_factor = min(1.3, total_dur / 10.0)
-            try:
-                subprocess.run([
-                    "ffmpeg", "-y", "-i", out,
-                    "-filter:a", f"atempo={speed_factor}",
-                    "-c:a", "libmp3lame", "-b:a", "128k",
-                    sped_up, "-loglevel", "error"
-                ], check=True)
-                import shutil
-                shutil.move(sped_up, out)
-                print(f"  ✓ TTS 속도 {speed_factor:.2f}x 적용")
-            except Exception as e:
-                print(f"  ⚠ 속도 조절 실패 (원본 유지): {e}")
-
     # 임시 파일 정리
     for fp in part_files:
         try:
