@@ -32,7 +32,7 @@ from fastapi import FastAPI, HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
-from config import LANGUAGES, TOPIC_CONFIG, COLLECTION_THEMES, get_today_topic, _today_kst
+from config import LANGUAGES, TOPIC_CONFIG, COLLECTION_THEMES, get_today_topic, _today_kst, SLOT_LANG_MAP
 from generator import claude_gen, history as hist_module
 from renderer import card as card_renderer
 from renderer import fonts as F
@@ -181,24 +181,23 @@ def run_prefetch(req: PrefetchRequest = PrefetchRequest(), creds=Security(_verif
 
 @app.post("/job")
 def run_job(req: JobRequest, creds=Security(_verify)):
-    """
-    Steps 1-7 실행 후 결과 URLs 반환.
-    main 서버가 결과를 받아 Instagram 포스팅(Step 8)을 수행함.
-    """
     today      = _today_kst().strftime("%Y%m%d")
     yesterday  = (_today_kst() - timedelta(days=1)).strftime("%Y%m%d")
-    langs      = req.langs or list(LANGUAGES)
     topic      = _get_topic(req.slot, req.topic, req.custom_topic)
     output_dir = _output_path()
+    slot       = req.slot or "morning"
+
+    # 슬롯 → 단일 언어
+    lang = SLOT_LANG_MAP.get(slot, "en")
 
     print(f"\n{'='*54}")
-    print(f"[Worker] {topic['emoji']} {topic['topic_ko']}  |  langs={langs}  dry_run={req.dry_run}")
+    print(f"[Worker HOOK] {slot} → {lang}  dry_run={req.dry_run}")
     print(f"{'='*54}")
 
     t_job = time.time()
     step_times: dict[str, float] = {}
 
-    # ── Step 1: 폰트 ────────────────────────────────────────────────────────
+    # Step 1: 폰트
     print("\n[1/7] 폰트 확인")
     t0 = time.time()
     try:
@@ -206,223 +205,122 @@ def run_job(req: JobRequest, creds=Security(_verify)):
     except Exception as e:
         print(f"  ⚠ 폰트 오류 (계속): {e}")
     step_times["step1_fonts"] = time.time() - t0
-    print(f"  ⏱ Step 1: {step_times['step1_fonts']:.1f}s")
 
-    # ── Step 2: 표현 생성 (프리페치 폴백) ────────────────────────────────────
-    print(f"\n[2/7] Claude API 표현 생성")
+    # Step 2: HOOK 표현 생성
+    print(f"\n[2/7] Claude API HOOK 표현 생성 ({lang})")
     t0 = time.time()
-    all_data: dict[str, dict] = {}
-
-    for lang in langs:
-        print(f"  → {lang} 생성 중...")
-        try:
-            all_data[lang] = claude_gen.generate(lang, topic)
-            print(f"  ✓ {lang}: {all_data[lang]['main_expression']}")
-        except Exception as e:
-            # 2순위: 프리페치 파일 (이벤트는 프리페치 없음)
-            if not req.custom_topic:
-                prefetched = claude_gen.load_prefetch(today, lang)
-                if prefetched:
-                    all_data[lang] = prefetched
-                    print(f"  ⚠ Claude 실패, 프리페치 사용: {lang}  ({e})")
-                    continue
-            print(f"  ✗ {lang} 건너뜀 (Claude 실패): {e}")
-
-    if not all_data:
-        raise HTTPException(status_code=503, detail="표현 생성 전체 실패")
-
+    try:
+        hook_data = claude_gen.generate_hook(lang)
+        print(f"  ✓ WRONG: {hook_data['wrong']}")
+        print(f"  ✓ RIGHT: {hook_data['right']}")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"HOOK 생성 실패: {e}")
     step_times["step2_claude"] = time.time() - t0
-    print(f"  ⏱ Step 2: {step_times['step2_claude']:.1f}s")
 
-    # 오늘 데이터 JSON 저장 (일반 슬롯만, 이벤트는 저장 안 함)
-    if not req.custom_topic:
-        slot_key  = req.slot or "daily"
-        data_json = os.path.join(output_dir, f"data_{slot_key}_{today}.json")
-        with open(data_json, "w", encoding="utf-8") as f:
-            json.dump({"topic": topic, "data": all_data}, f, ensure_ascii=False, indent=2)
-        print(f"  ✓ 데이터 저장: {data_json}")
-        # 프리페치: 이미 5분 이상 걸렸으면 스킵 (타임아웃 방지)
-        t_prefetch = time.time()
-        if time.time() - t_job < 300:
-            _try_prefetch_tomorrow(langs, output_dir, all_data)
-        else:
-            print(f"  ⚠ 프리페치 스킵 (이미 {time.time() - t_job:.0f}s 경과)")
-        step_times["prefetch"] = time.time() - t_prefetch
-        print(f"  ⏱ 프리페치: {step_times['prefetch']:.1f}s")
+    # 데이터 JSON 저장
+    data_json = os.path.join(output_dir, f"data_{slot}_{today}.json")
+    with open(data_json, "w", encoding="utf-8") as f:
+        json.dump({"slot": slot, "lang": lang, "data": hook_data},
+                  f, ensure_ascii=False, indent=2)
 
-    # ── Step 3: 카드 렌더링 ─────────────────────────────────────────────────
-    print(f"\n[3/7] 카드 이미지 렌더링")
+    # Step 3: HOOK 카드 렌더링 (3장)
+    print(f"\n[3/7] HOOK 카드 렌더링")
     t0 = time.time()
-    image_paths: dict[str, str] = {}
-    vocab_paths: dict[str, str] = {}
-    for lang in list(all_data.keys()):
-        try:
-            bg_path = fetch_city_bg(lang, req.slot or topic.get("theme_slot", "morning"))
-            if bg_path:
-                print(f"  ✓ {lang} 도시 배경 이미지 준비: {bg_path}")
-            else:
-                print(f"  ⚠ {lang} 도시 배경 없음 (그라디언트 폴백)")
-            image_paths[lang] = card_renderer.render(all_data[lang], lang, topic, date_str=today, bg_path=bg_path)
-            vocab_paths[lang] = card_renderer.render_vocab(all_data[lang], lang, topic, date_str=today, bg_path=bg_path)
-            print(f"  ✓ {lang}: 표현카드 + 단어카드")
-        except Exception as e:
-            print(f"  ✗ {lang} 렌더링 실패 (건너뜀): {e}")
-            all_data.pop(lang, None)
-    step_times["step3_render"] = time.time() - t0
-    print(f"  ⏱ Step 3: {step_times['step3_render']:.1f}s")
+    bg_path = fetch_city_bg(lang, slot)
 
-    # ── Step 4: TTS ─────────────────────────────────────────────────────────
+    hook_png = card_renderer.render_hook_card(
+        hook_data["hook"], lang, today, slot=slot, bg_path=bg_path)
+    wr_png = card_renderer.render_wrong_right_card(
+        hook_data, lang, today, slot=slot, bg_path=bg_path)
+    cta_png = card_renderer.render_cta_card(
+        hook_data.get("cta", "이거 몰랐으면 저장해두세요"), lang, today,
+        slot=slot, bg_path=bg_path)
+    step_times["step3_render"] = time.time() - t0
+
+    # Step 4: 이중 언어 TTS
     print(f"\n[4/7] TTS 음성 생성")
     t0 = time.time()
-    expr_tts:  dict[str, str | None] = {}
-    vocab_tts: dict[str, str | None] = {}
-    for lang in image_paths:
-        try:
-            expr_tts[lang]  = tts_gen.generate_expression(
-                all_data[lang]["main_expression"], lang, today,
-                slot=req.slot or "default")
-            vocab_tts[lang] = tts_gen.generate_vocab(
-                all_data[lang].get("vocab", []), lang, today,
-                slot=req.slot or "default")
-        except Exception as e:
-            print(f"  ⚠ {lang} TTS 예외 (건너뜀): {e}")
-            expr_tts[lang]  = None
-            vocab_tts[lang] = None
-
-        # 실제 성공 여부로 로그 분기
-        if expr_tts.get(lang):
-            print(f"  ✓ {lang}: TTS 생성 완료")
-        else:
-            print(f"  ⚠ {lang}: TTS 실패 — 무음 릴스로 진행")
+    hook_tts = tts_gen.generate_hook_tts(hook_data, lang, today, slot=slot)
     step_times["step4_tts"] = time.time() - t0
-    print(f"  ⏱ Step 4: {step_times['step4_tts']:.1f}s")
 
-    # ── Step 5: 숏릴스 MP4 ─────────────────────────────────────────────────
-    print(f"\n[5/7] 숏릴스 생성")
+    # Step 5: HOOK 릴스 합성
+    print(f"\n[5/7] HOOK 릴스 합성")
     t0 = time.time()
-    short_reel_paths: dict[str, str] = {}
-    for lang in image_paths:
-        try:
-            path = reel_renderer.render_short(
-                image_paths[lang], vocab_paths[lang],
-                expr_tts.get(lang), vocab_tts.get(lang),
-                lang, today,
-            )
-            short_reel_paths[lang] = path
-            print(f"  ✓ {lang}: {os.path.basename(path)}")
-        except Exception as e:
-            print(f"  ✗ {lang} 숏릴스 실패 (건너뜀): {e}")
+    hook_reel_path = reel_renderer.render_hook_reel(
+        hook_png, wr_png, cta_png, hook_tts, lang, today, slot=slot)
     step_times["step5_reels"] = time.time() - t0
-    print(f"  ⏱ Step 5: {step_times['step5_reels']:.1f}s")
 
-    # ── Step 6: 컬렉션 캐러셀 생성 (아침 슬롯만) ────────────────────────────
-    print(f"\n[6/7] 컬렉션 캐러셀 생성")
+    # Step 6: 리캡 캐러셀 (유지 — 간소화)
+    print(f"\n[6/7] 전날 리캡 캐러셀 준비")
     t0 = time.time()
-    collection_pngs: list[str]             = []
-    collection_meta: list[tuple[str, str]] = []   # (lang, suffix)
-    coll_theme: dict = {}
-
-    if not req.custom_topic and len(langs) == len(LANGUAGES) and req.slot == "morning":
-        try:
-            epoch     = date(2026, 1, 1)
-            theme_idx = (_today_kst() - epoch).days % len(COLLECTION_THEMES)
-            coll_theme = COLLECTION_THEMES[theme_idx]
-            print(f"  테마: {coll_theme['emoji']} {coll_theme['title_ko']}")
-
-            # Claude API로 8쌍 생성
-            items = claude_gen.generate_collection(coll_theme, n=8)
-
-            # 커버 (1장)
-            cover_path = card_renderer.render_collection_cover(coll_theme, today)
-            collection_pngs.append(cover_path)
-            collection_meta.append(("all", "cover"))
-
-            # 슬라이드 (8장)
-            for i, item in enumerate(items[:8], 1):
-                try:
-                    sl_path = card_renderer.render_collection_slide(item, i, len(items[:8]), today)
-                    collection_pngs.append(sl_path)
-                    collection_meta.append(("all", f"slide_{i:02d}"))
-                except Exception as e:
-                    print(f"  ⚠ 슬라이드 {i} 렌더링 실패: {e}")
-
-            # CTA (1장)
-            cta_path = card_renderer.render_collection_cta(today)
-            collection_pngs.append(cta_path)
-            collection_meta.append(("all", "cta"))
-
-            print(f"  ✓ 컬렉션 캐러셀 {len(collection_pngs)}장 준비")
-        except Exception as e:
-            print(f"  ⚠ 컬렉션 캐러셀 생성 실패 (건너뜀): {e}")
-    else:
-        if req.custom_topic:
-            print(f"  → 이벤트 모드: 캐러셀 생략")
-        elif len(langs) != len(LANGUAGES):
-            print(f"  → 단일 언어 모드: 캐러셀 생략")
+    recap_pngs = []
+    recap_meta = []
+    try:
+        import glob as _glob
+        yest_data_files = sorted(_glob.glob(
+            os.path.join(output_dir, f"data_*_{yesterday}.json")))
+        if yest_data_files:
+            for yf in yest_data_files:
+                with open(yf, "r", encoding="utf-8") as f:
+                    saved = json.load(f)
+                wr_card = os.path.join(output_dir,
+                    f"wrongright_{saved.get('lang', '')}_{saved.get('slot', '')}_{yesterday}.png")
+                if os.path.exists(wr_card):
+                    recap_pngs.append(wr_card)
+                    recap_meta.append((saved.get('lang', 'all'), f"wr_{saved.get('slot', '')}"))
+            if recap_pngs:
+                cover_path = card_renderer.render_recap_cover({}, topic, yesterday)
+                recap_pngs.insert(0, cover_path)
+                recap_meta.insert(0, ("all", "cover"))
+                print(f"  ✓ 리캡 카드 {len(recap_pngs)}장 준비")
+            else:
+                print(f"  ⚠ 전날 WRONG→RIGHT 카드 없음")
         else:
-            print(f"  → {req.slot or 'daily'} 슬롯: 캐러셀은 morning 슬롯에서만 생성")
+            print(f"  ⚠ 전날 데이터 없음")
+    except Exception as e:
+        print(f"  ⚠ 리캡 준비 실패: {e}")
     step_times["step6_carousel"] = time.time() - t0
-    print(f"  ⏱ Step 6: {step_times['step6_carousel']:.1f}s")
 
-    # ── dry-run 종료 ─────────────────────────────────────────────────────────
+    # dry-run
     if req.dry_run:
-        print("\n[dry-run] Cloudinary 업로드 생략")
-        print(f"\n✅ Worker 완료 (dry-run): 릴스 {len(short_reel_paths)}개, 캐러셀 {len(collection_pngs)}장  ⏱ 총 {time.time() - t_job:.0f}s")
+        print(f"\n✅ Worker 완료 (dry-run)  ⏱ 총 {time.time() - t_job:.0f}s")
         return {
             "status": "dry_run",
             "today": today,
-            "topic": topic,
-            "all_data": all_data,
-            "collection_theme": coll_theme,
-            "langs_done": list(short_reel_paths.keys()),
-            "collection_pngs_count": len(collection_pngs),
-            "short_reel_urls": {},
-            "collection_card_urls": [],
+            "slot": slot,
+            "lang": lang,
+            "hook_data": hook_data,
+            "hook_reel_url": None,
+            "recap_card_urls": [],
             "step_times": step_times,
             "dry_run": True,
         }
 
-    # ── Step 7: Cloudinary 업로드 ────────────────────────────────────────────
+    # Step 7: Cloudinary 업로드
     print(f"\n[7/7] Cloudinary 업로드")
     t0 = time.time()
-    short_reel_urls: dict[str, str] = {}
-    for lang, path in short_reel_paths.items():
-        try:
-            url = cloudinary_up.upload_video(path, f"short_{lang}", today)
-            short_reel_urls[lang] = url
-            print(f"  ✓ {lang} 숏릴스 업로드")
-        except Exception as e:
-            print(f"  ✗ {lang} 숏릴스 업로드 실패: {e}")
+    hook_reel_url = cloudinary_up.upload_video(hook_reel_path, f"hook_{lang}", today)
 
-    collection_card_urls: list[str] = []
-    if collection_pngs:
-        for i, (png, (lng, sfx)) in enumerate(zip(collection_pngs, collection_meta)):
+    recap_card_urls = []
+    if recap_pngs:
+        for i, (png, (lng, sfx)) in enumerate(zip(recap_pngs, recap_meta)):
             try:
-                url = cloudinary_up.upload(
-                    png, lng, "collection",
-                    suffix=sfx, date_str=today)
-                collection_card_urls.append(url)
+                url = cloudinary_up.upload(png, lng, "recap", suffix=sfx, date_str=yesterday)
+                recap_card_urls.append(url)
             except Exception as e:
-                print(f"  ⚠ 컬렉션 슬라이드 {i+1} 업로드 실패: {e}")
-
+                print(f"  ⚠ 리캡 {i} 업로드 실패: {e}")
     step_times["step7_upload"] = time.time() - t0
-    print(f"  ⏱ Step 7: {step_times['step7_upload']:.1f}s")
 
-    tts_failed = [lang for lang, p in expr_tts.items() if p is None]
-    if tts_failed:
-        print(f"  ⚠ TTS 실패 언어: {tts_failed}")
-    print(f"\n✅ Worker 완료: 릴스 {len(short_reel_urls)}개, 캐러셀 {len(collection_card_urls)}장  ⏱ 총 {time.time() - t_job:.0f}s")
+    print(f"\n✅ Worker 완료  ⏱ 총 {time.time() - t_job:.0f}s")
 
     return {
         "status": "ok",
-        "slot": req.slot,
         "today": today,
-        "topic": topic,
-        "all_data": all_data,
-        "collection_theme": coll_theme,
-        "short_reel_urls": short_reel_urls,
-        "collection_card_urls": collection_card_urls,
-        "tts_failed": tts_failed,
+        "slot": slot,
+        "lang": lang,
+        "hook_data": hook_data,
+        "hook_reel_url": hook_reel_url,
+        "recap_card_urls": recap_card_urls,
         "step_times": step_times,
         "dry_run": False,
     }
