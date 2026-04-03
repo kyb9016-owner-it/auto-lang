@@ -192,6 +192,7 @@ def run_generation(
     dry_run: bool = False,
     track_times: bool = False,
     topic: Optional[dict] = None,
+    lang: Optional[str] = None,
 ) -> GenerationResult:
     """
     Steps 1-7 실행: 폰트 → 생성 → 렌더 → TTS → 릴스 → 리캡 → 업로드(dry_run이면 생략).
@@ -202,7 +203,7 @@ def run_generation(
     Raises:
         RuntimeError — Step 2 (Claude 생성) 실패 시
     """
-    lang = SLOT_LANG_MAP[slot]
+    lang = lang or SLOT_LANG_MAP[slot]
     lc = LANG_CONFIG[lang]
 
     print(f"\n{'='*54}")

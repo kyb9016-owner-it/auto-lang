@@ -184,6 +184,7 @@ def run_job(req: JobRequest, creds=Security(_verify)):
 
     t_job = time.time()
 
+    lang_override = req.langs[0] if req.langs and len(req.langs) == 1 else None
     try:
         result = pipeline.run_generation(
             slot=slot,
@@ -193,6 +194,7 @@ def run_job(req: JobRequest, creds=Security(_verify)):
             dry_run=req.dry_run,
             track_times=True,
             topic=topic,
+            lang=lang_override,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))

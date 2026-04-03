@@ -43,16 +43,20 @@ _SLOT_EMOJI = {
 _LANG_FLAG = {"en": "🇺🇸", "zh": "🇨🇳", "ja": "🇯🇵"}
 
 
+_ALL_LANGS = ["en", "zh", "ja"]
+
+
 def dispatch(slot: str | None, dry_run: bool = False,
              lang_filter: str | None = None,
              custom_topic: dict | None = None) -> dict:
     """
-    worker에 작업 요청 후 Instagram 포스팅.
-    Returns: worker 응답 dict
-    Raises: RuntimeError on failure
+    worker에 3개국어 작업 요청 후 Instagram 포스팅.
+    - 슬롯당 en/zh/ja 릴스 3개 순차 포스팅
+    - 리캡 캐러셀은 하루 1번만 (최초 슬롯에서 1회)
+    Returns: 결과 dict
     """
-    label  = slot or "event"
-    emoji  = _SLOT_EMOJI.get(label, "📌")
+    label   = slot or "event"
+    emoji   = _SLOT_EMOJI.get(label, "📌")
     t_start = time.time()
 
     # ── 중복 포스팅 방지 ─────────────────────────────────────────────
@@ -66,115 +70,108 @@ def dispatch(slot: str | None, dry_run: bool = False,
         notify.send(msg)
         return {"status": "skipped", "reason": "already_posted"}
 
-    print(f"\n{emoji} {label} 슬롯 시작 (dry_run={dry_run}, lang={lang_filter or 'all'})")
-    print(f"  → Worker: {WORKER_URL}/job")
-
-    # ── [🔔 1] 시작 알림 ─────────────────────────────────────────────────────
+    langs_to_run = [lang_filter] if lang_filter else _ALL_LANGS
     dry_tag = " <i>(dry-run)</i>" if dry_run else ""
+    print(f"\n{emoji} {label} 슬롯 시작 (dry_run={dry_run}, langs={langs_to_run})")
     notify.send(
         f"{emoji} <b>{label} 슬롯 포스팅 시작</b>{dry_tag}\n"
-        f"언어: {lang_filter or 'en · zh · ja'}"
+        f"언어: {' · '.join(langs_to_run)}"
     )
 
-    # ── worker 호출 ──────────────────────────────────────────────────────────
-    payload: dict = {"dry_run": dry_run}
-    if slot and slot != "event":
-        payload["slot"] = slot
-    if lang_filter:
-        payload["langs"] = [lang_filter]
-    if custom_topic:
-        payload["custom_topic"] = custom_topic
+    reel_count     = 0
+    carousel_count = 0
+    last_data: dict = {}
 
-    try:
-        resp = requests.post(
-            f"{WORKER_URL}/job",
-            json=payload,
-            headers={"Authorization": f"Bearer {WORKER_SECRET}"},
-            timeout=TIMEOUT,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except requests.Timeout:
-        msg = f"Worker 응답 시간 초과 ({TIMEOUT}초)"
-        notify.send(f"❌ <b>{label} 슬롯 실패</b>\n{msg}")
-        raise RuntimeError(msg)
-    except requests.RequestException as e:
-        msg = f"Worker 연결 실패: {e}"
-        notify.send(f"❌ <b>{label} 슬롯 실패</b>\n{msg}")
-        raise RuntimeError(msg)
+    for lang in langs_to_run:
+        flag = _LANG_FLAG.get(lang, lang)
+        print(f"\n  → {flag} {lang} Worker 호출")
 
-    if data.get("status") not in ("ok", "dry_run"):
-        msg = f"Worker 오류: {data}"
-        notify.send(f"❌ <b>{label} 슬롯 실패</b>\n{msg}")
-        raise RuntimeError(msg)
+        payload: dict = {"dry_run": dry_run, "langs": [lang]}
+        if slot and slot != "event":
+            payload["slot"] = slot
+        if custom_topic:
+            payload["custom_topic"] = custom_topic
 
-    hook_data       = data.get("hook_data", {})
-    hook_reel_url   = data.get("hook_reel_url")
-    recap_card_urls = data.get("recap_card_urls", [])
-    resp_lang       = data.get("lang", "en")
+        try:
+            resp = requests.post(
+                f"{WORKER_URL}/job",
+                json=payload,
+                headers={"Authorization": f"Bearer {WORKER_SECRET}"},
+                timeout=TIMEOUT,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.Timeout:
+            notify.send(f"❌ {flag} Worker 응답 시간 초과 — 건너뜁니다.")
+            continue
+        except requests.RequestException as e:
+            notify.send(f"❌ {flag} Worker 연결 실패: {e}")
+            continue
 
-    flag = _LANG_FLAG.get(resp_lang, "")
-    print(f"  ✓ Worker 완료: {flag} HOOK 릴스 1개"
-          + (f", 리캡 {len(recap_card_urls)}장" if recap_card_urls else ""))
+        if data.get("status") not in ("ok", "dry_run"):
+            notify.send(f"❌ {flag} Worker 오류: {data}")
+            continue
 
-    # ── [🔔 2] Worker 완료 + 표현 미리보기 ──────────────────────────────────
-    wrong = hook_data.get("wrong", "")
-    right = hook_data.get("right", "")
-    notify.send(
-        f"📦 <b>HOOK 콘텐츠 생성 완료</b>\n\n"
-        f"{flag} ❌ {wrong}\n{flag} ✅ {right}"
-    )
+        last_data = data
+        hook_data       = data.get("hook_data", {})
+        hook_reel_url   = data.get("hook_reel_url")
+        recap_card_urls = data.get("recap_card_urls", [])
+
+        wrong = hook_data.get("wrong", "")
+        right = hook_data.get("right", "")
+        print(f"  ✓ {flag} Worker 완료: HOOK 릴스 1개"
+              + (f", 리캡 {len(recap_card_urls)}장" if recap_card_urls else ""))
+        notify.send(f"📦 {flag} <b>HOOK 생성 완료</b>\n\n{flag} ❌ {wrong}\n{flag} ✅ {right}")
+
+        if dry_run:
+            continue
+
+        # ── 리캡 캐러셀 (하루 1번만) ──────────────────────────────────
+        if recap_card_urls and not is_slot_posted(today_str, "recap"):
+            try:
+                pipeline.post_recap(recap_card_urls)
+                carousel_count += 1
+                mark_slot_posted(today_str, "recap")
+                notify.send(f"📸 <b>리캡 캐러셀 업로드 완료</b> ✅ ({len(recap_card_urls)}장)")
+                time.sleep(8)
+            except Exception as e:
+                notify.send(f"⚠️ <b>리캡 캐러셀 실패</b> (건너뜀)\n<code>{e}</code>")
+
+        # ── HOOK 릴스 ────────────────────────────────────────────────
+        if hook_reel_url:
+            try:
+                pipeline.post_hook_reel_and_story(hook_reel_url, lang, hook_data)
+                reel_count += 1
+                notify.send(f"🎬 <b>{flag} HOOK 릴스 업로드 완료</b> ✅")
+            except Exception as e:
+                notify.send(f"❌ <b>{flag} HOOK 릴스 포스팅 실패</b>\n<code>{e}</code>")
+                print(f"  ✗ {flag} 릴스 포스팅 실패: {e}")
+
+        if len(langs_to_run) > 1:
+            time.sleep(5)   # Instagram API rate limit 여유
 
     if dry_run:
         elapsed = int(time.time() - t_start)
         notify.send(f"✅ <b>{label} dry-run 완료</b> ({elapsed}초)")
-        print(f"\n[dry-run] Instagram 포스팅 생략. 완료.")
-        return data
+        print(f"\n[dry-run] 완료.")
+        return last_data or {}
 
-    # ── Step 8: Instagram 포스팅 ─────────────────────────────────────────────
-    print(f"\n[8] Instagram 포스팅")
-
-    reel_count     = 0
-    carousel_count = 0
-
-    # 8-a) 리캡 캐러셀
-    if recap_card_urls:
-        try:
-            pipeline.post_recap(recap_card_urls)
-            carousel_count += 1
-            notify.send(f"📸 <b>리캡 캐러셀 업로드 완료</b> ✅ ({len(recap_card_urls)}장)")
-            time.sleep(8)
-        except Exception as e:
-            notify.send(f"⚠️ <b>리캡 캐러셀 실패</b> (건너뜀)\n<code>{e}</code>")
-            print(f"  ⚠ 리캡 캐러셀 포스팅 실패 (건너뜀): {e}")
-
-    # 8-b) HOOK 릴스 1개
-    if hook_reel_url:
-        try:
-            pipeline.post_hook_reel_and_story(hook_reel_url, resp_lang, hook_data)
-            reel_count += 1
-            notify.send(f"🎬 <b>{flag} HOOK 릴스 업로드 완료</b> ✅")
-        except Exception as e:
-            notify.send(f"❌ <b>{flag} HOOK 릴스 포스팅 실패</b>\n<code>{e}</code>")
-            print(f"  ✗ HOOK 릴스 포스팅 실패: {e}")
-
-    # ── [🔔 5] 전체 완료 요약 ────────────────────────────────────────────────
+    # ── 완료 요약 ────────────────────────────────────────────────────
     elapsed = int(time.time() - t_start)
     mins, secs = divmod(elapsed, 60)
-    total = reel_count + carousel_count
     notify.send(
         f"✅ <b>{label} 포스팅 완료!</b>\n"
-        f"HOOK 릴스 {reel_count}개"
+        f"릴스 {reel_count}개"
         + (f" + 리캡 {carousel_count}개" if carousel_count else "")
         + f"\n소요시간: {mins}분 {secs}초"
     )
 
-    # 포스팅 완료 기록 (중복 방지용) — 릴스가 성공해야만 완료 처리
-    if not dry_run and reel_count > 0:
+    # 릴스가 1개 이상 성공해야만 완료 처리
+    if reel_count > 0:
         mark_slot_posted(today_str, post_key)
 
-    print(f"\n✅ {label} 슬롯 완료! 총 {total}개 포스팅")
-    return data
+    print(f"\n✅ {label} 슬롯 완료! 릴스 {reel_count}개 포스팅")
+    return last_data or {}
 
 
 def check_health() -> dict:
