@@ -8,14 +8,14 @@
 SHELL=/bin/bash
 PATH=/opt/auto-lang/.venv/bin:/usr/local/bin:/usr/bin:/bin
 
-# ── 아침 슬롯 (KST 08:00 → UTC 23:00) ────────────────────────────────────────
-0 23 * * * cd /opt/auto-lang && python3 dispatch.py --slot morning >> /var/log/langcard/cron.log 2>&1
+# ── 아침 슬롯 (KST 07:10 → UTC 22:10 전날, 08:00 포스팅 목표) ──────────────────
+10 22 * * * cd /opt/auto-lang && /opt/auto-lang/.venv/bin/python3 dispatch.py --slot morning >> /var/log/langcard/cron.log 2>&1
 
-# ── 점심 슬롯 (KST 12:00 → UTC 03:00) ────────────────────────────────────────
-0 3 * * * cd /opt/auto-lang && python3 dispatch.py --slot lunch >> /var/log/langcard/cron.log 2>&1
+# ── 점심 슬롯 (KST 11:10 → UTC 02:10, 12:00 포스팅 목표) ────────────────────────
+10 2 * * * cd /opt/auto-lang && /opt/auto-lang/.venv/bin/python3 dispatch.py --slot lunch >> /var/log/langcard/cron.log 2>&1
 
-# ── 저녁 슬롯 (KST 20:00 → UTC 11:00) ────────────────────────────────────────
-0 11 * * * cd /opt/auto-lang && python3 dispatch.py --slot evening >> /var/log/langcard/cron.log 2>&1
+# ── 저녁 슬롯 (KST 19:10 → UTC 10:10, 20:00 포스팅 목표) ────────────────────────
+10 10 * * * cd /opt/auto-lang && /opt/auto-lang/.venv/bin/python3 dispatch.py --slot evening >> /var/log/langcard/cron.log 2>&1
 
 # ── 스토리 큐 처리 (5분마다 — 릴스 포스팅 1시간 후 자동 공유) ─────────────────
 */5 * * * * cd /opt/auto-lang && python3 story_dispatcher.py >> /var/log/langcard/story.log 2>&1
