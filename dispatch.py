@@ -169,8 +169,8 @@ def dispatch(slot: str | None, dry_run: bool = False,
         + f"\n소요시간: {mins}분 {secs}초"
     )
 
-    # 포스팅 완료 기록 (중복 방지용)
-    if not dry_run and total > 0:
+    # 포스팅 완료 기록 (중복 방지용) — 릴스가 성공해야만 완료 처리
+    if not dry_run and reel_count > 0:
         mark_slot_posted(today_str, post_key)
 
     print(f"\n✅ {label} 슬롯 완료! 총 {total}개 포스팅")
