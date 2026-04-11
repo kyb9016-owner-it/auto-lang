@@ -73,6 +73,7 @@ Return ONLY this JSON:
     {{"word": "word2 in {lc['name']}", "meaning": "Korean meaning", "pronunciation": "romanization if needed else null", "korean_phonetic": "한글 발음"}},
     {{"word": "word3 in {lc['name']}", "meaning": "Korean meaning", "pronunciation": "romanization if needed else null", "korean_phonetic": "한글 발음"}}
   ],
+  "usage_tip": "이 표현의 사용 상황과 뉘앙스를 2~3문장으로 설명 (한국어). 언제 쓰는지, 어떤 뉘앙스인지, 비슷한 표현과의 차이 등 포함. 예: '오랫동안 못 봤던 사람에게 쓰는 표현이에요. Nice to meet you는 처음 만날 때 쓰고, 이 표현은 아는 사람에게 다시 만났을 때 써요. 격식 없는 상황에서 자연스럽게 사용할 수 있어요.'",
   "emoji": "1~2 relevant emojis"
 }}"""
 
@@ -172,6 +173,7 @@ Return ONLY this JSON:
     "✅ RIGHT 표현",
     "→ RIGHT의 한국어 뜻"
   ],
+  "explanation": "틀린 표현이 왜 어색한지, 올바른 표현은 언제/어떻게 쓰는지 2~3문장으로 설명 (한국어). 뉘앙스 차이, 원어민이 실제 쓰는 상황 포함. 예: '\"He is a kind person\"은 문법적으로는 맞지만 원어민 대화에서는 너무 딱딱하게 들려요. 일상에서는 \"He\\'s really nice\"처럼 짧고 자연스러운 표현을 더 많이 써요. 특히 친한 사람을 소개하거나 칭찬할 때 이 표현이 훨씬 자연스럽습니다.'",
   "cta": "저장/댓글 유도 문구 (예: '이거 몰랐으면 저장해두세요'). 이모지 사용 금지."
 }}"""
 

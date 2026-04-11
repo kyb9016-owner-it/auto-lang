@@ -101,6 +101,10 @@ def _build_short_reel_caption(lang: str, data: dict, topic: dict) -> str:
             lines.append(entry)
         lines.append("")
 
+    usage_tip = data.get("usage_tip", "")
+    if usage_tip:
+        lines += ["💡 " + usage_tip, ""]
+
     lines += [
         "이 표현 써본 적 있나요? 댓글로 알려주세요 💬",
         "유용했다면 ❤️ 좋아요 + 💾 저장해두고 오늘 꼭 써보세요!",
@@ -123,6 +127,10 @@ def _build_hook_reel_caption(lang: str, data: dict) -> str:
 
     if data.get("pronunciation"):
         lines.append(f"({data['pronunciation']})")
+
+    explanation = data.get("explanation", "")
+    if explanation:
+        lines += ["", f"💡 {explanation}"]
 
     lines += [
         "",
