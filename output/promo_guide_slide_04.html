@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080">
+<title>LangCard Studio — Guide Slide 04</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=DM+Sans:wght@400;500;700;900&display=swap');
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body {
+    width: 1080px;
+    height: 1080px;
+    overflow: hidden;
+  }
+
+  body {
+    background-color: #0D1B2A;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'DM Sans', 'Noto Sans KR', sans-serif;
+  }
+
+  .canvas {
+    width: 1080px;
+    height: 1080px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: 100px 120px;
+  }
+
+  .canvas::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(315deg, rgba(255, 213, 79, 0.04) 0%, transparent 55%);
+    pointer-events: none;
+  }
+
+  .top-line {
+    position: absolute;
+    top: 72px;
+    left: 120px;
+    right: 120px;
+    height: 1px;
+    background: rgba(255, 213, 79, 0.25);
+  }
+
+  .bottom-line {
+    position: absolute;
+    bottom: 72px;
+    left: 120px;
+    right: 120px;
+    height: 1px;
+    background: rgba(255, 213, 79, 0.25);
+  }
+
+  .slide-number {
+    position: absolute;
+    top: 88px;
+    right: 120px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 28px;
+    font-weight: 400;
+    color: rgba(255, 213, 79, 0.45);
+    letter-spacing: 0.08em;
+  }
+
+  /* Content type badge */
+  .type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(255, 213, 79, 0.1);
+    border: 1px solid rgba(255, 213, 79, 0.3);
+    border-radius: 100px;
+    padding: 10px 28px;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 26px;
+    font-weight: 500;
+    color: #FFD54F;
+    letter-spacing: 0.04em;
+    margin-bottom: 32px;
+    z-index: 1;
+  }
+
+  .header {
+    margin-bottom: 52px;
+    z-index: 1;
+  }
+
+  .slide-title {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 56px;
+    font-weight: 700;
+    color: #FFFFFF;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+  }
+
+  .slide-title .accent {
+    color: #FFD54F;
+  }
+
+  /* Review cycle visual */
+  .review-block {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    justify-content: center;
+    z-index: 1;
+  }
+
+  /* Day pill row */
+  .day-row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .day-pill {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 14px 24px;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 26px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.4);
+    white-space: nowrap;
+    flex-shrink: 0;
+    width: 100px;
+    text-align: center;
+  }
+
+  .day-pill.today {
+    border-color: rgba(255, 213, 79, 0.4);
+    color: #FFD54F;
+    background: rgba(255, 213, 79, 0.08);
+  }
+
+  .day-content {
+    flex: 1;
+    padding: 20px 28px;
+    border-left: 3px solid rgba(255, 213, 79, 0.3);
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 0 10px 10px 0;
+  }
+
+  .day-content.highlight {
+    border-left-color: #FFD54F;
+    background: rgba(255, 213, 79, 0.06);
+  }
+
+  .day-expr {
+    font-family: 'DM Sans', 'Noto Sans KR', sans-serif;
+    font-size: 30px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.7);
+    margin-bottom: 4px;
+  }
+
+  .day-expr.gold {
+    color: #FFD54F;
+  }
+
+  .day-label {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 24px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .day-label.bright {
+    color: rgba(255, 213, 79, 0.7);
+  }
+
+  /* Arrow connector */
+  .arrow-connector {
+    display: flex;
+    align-items: center;
+    padding-left: 120px;
+    gap: 12px;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 24px;
+    font-weight: 400;
+    color: rgba(255, 213, 79, 0.5);
+  }
+
+  /* Bottom insight */
+  .insight {
+    margin-top: 40px;
+    padding: 28px 36px;
+    background: rgba(255, 213, 79, 0.06);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 213, 79, 0.2);
+    z-index: 1;
+  }
+
+  .insight-text {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 30px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.75);
+    line-height: 1.6;
+    text-align: center;
+  }
+
+  .insight-text .gold {
+    color: #FFD54F;
+    font-weight: 700;
+  }
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="top-line"></div>
+  <div class="bottom-line"></div>
+  <div class="slide-number">04 / 05</div>
+
+  <div class="type-badge">🔁 복습 캐러셀</div>
+
+  <div class="header">
+    <h2 class="slide-title">어제 배운 표현,<br><span class="accent">오늘 다시 한 번</span></h2>
+  </div>
+
+  <div class="review-block">
+    <div class="day-row">
+      <div class="day-pill">Day 1</div>
+      <div class="day-content">
+        <p class="day-expr">"Are you free this weekend?"</p>
+        <p class="day-label">처음 배운 날</p>
+      </div>
+    </div>
+
+    <div class="arrow-connector">↓ 다음 날</div>
+
+    <div class="day-row">
+      <div class="day-pill today">Day 2</div>
+      <div class="day-content highlight">
+        <p class="day-expr gold">"Are you free this weekend?"</p>
+        <p class="day-label bright">복습 캐러셀로 다시 만나요</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="insight">
+    <p class="insight-text">한 번 봤다고 기억되지 않아요.<br><span class="gold">반복이 실력이 됩니다.</span></p>
+  </div>
+</div>
+</body>
+</html>

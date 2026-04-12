@@ -72,7 +72,15 @@
     "Can I get a refund on this?",
     "Is there anywhere I can leave my bags?",
     "Where can I pick up my luggage?",
-    "Small world, isn't it?"
+    "Small world, isn't it?",
+    "Any friend of Jake's is a friend of mine!",
+    "Does that come with anything?",
+    "I think we might know some of the same people!",
+    "I'm actually pretty new to all this!",
+    "We have a mutual friend!",
+    "I've heard your name around!",
+    "Would you take less for this?",
+    "I've heard your name come up!"
   ],
   "zh": [
     "早上好！今天天气不错吧？",
@@ -131,7 +139,11 @@
     "这个可以少放糖吗？",
     "这个能换一个吗？",
     "我的行李可以寄存在这里吗？",
-    "哎，你还活着呢！"
+    "哎，你还活着呢！",
+    "最近过得咋样啊？",
+    "你怎么样啊？好久不见！",
+    "这个多少钱啊？",
+    "你最近在忙什么呢？"
   ],
   "ja": [
     "おはようございます！今日もよろしくお願いします。",
@@ -188,11 +200,118 @@
     "すみません、これと同じものをもう一つお願いします！",
     "荷物、預かってもらえますか？",
     "免税になりますか？",
-    "最近、どんな感じ？"
+    "最近、どんな感じ？",
+    "どうぞよろしく！",
+    "あ、紹介します！こちらは田中さんです。",
+    "もう少し安くなりませんか？",
+    "あ、そっか！初めまして！"
   ],
   "_posted_slots": {
     "20260325": [
       "evening"
+    ],
+    "20260401": [
+      "lunch"
     ]
-  }
+  },
+  "en_hook": [
+    {
+      "wrong": "I'm sorry, I didn't understand. Can you speak more slowly?",
+      "right": "Sorry, I didn't catch that. Could you say that again?"
+    },
+    {
+      "wrong": "I'm very busy these days.",
+      "right": "I've been really busy lately."
+    },
+    {
+      "wrong": "I'm going to home.",
+      "right": "I'm going home."
+    },
+    {
+      "wrong": "I'm fine, thank you. And you?",
+      "right": "I'm good, thanks. You?"
+    },
+    {
+      "wrong": "I am boring.",
+      "right": "I'm bored."
+    },
+    {
+      "wrong": "I will call you tomorrow.",
+      "right": "I'll give you a call tomorrow."
+    },
+    {
+      "wrong": "He is a kind person.",
+      "right": "He's really nice."
+    },
+    {
+      "wrong": "I'm looking forward to see you tomorrow.",
+      "right": "I'm looking forward to seeing you tomorrow."
+    },
+    {
+      "wrong": "I have a headache pain.",
+      "right": "I have a headache."
+    },
+    {
+      "wrong": "I want to go to the bathroom.",
+      "right": "I need to use the bathroom."
+    },
+    {
+      "wrong": "I will go to bed at 11 o'clock tonight.",
+      "right": "I'm going to bed at 11 tonight."
+    },
+    {
+      "wrong": "I'm interested in English.",
+      "right": "I'm interested in learning English."
+    },
+    {
+      "wrong": "I'm going to the hospital because I'm sick.",
+      "right": "I'm going to the hospital. I'm not feeling well."
+    },
+    {
+      "wrong": "I'm good at English.",
+      "right": "I'm fluent in English. / I speak English well."
+    },
+    {
+      "wrong": "I have no time.",
+      "right": "I don't have time right now."
+    }
+  ],
+  "zh_hook": [
+    {
+      "wrong": "我很饿，我要吃饭。",
+      "right": "我饿了，我想吃饭。"
+    },
+    {
+      "wrong": "我觉得很冷。",
+      "right": "我很冷。"
+    },
+    {
+      "wrong": "我想要喝水。",
+      "right": "我要喝水。"
+    },
+    {
+      "wrong": "我没有时间。",
+      "right": "我没时间。"
+    },
+    {
+      "wrong": "我等一下。",
+      "right": "我等会儿。"
+    },
+    {
+      "wrong": "我很高兴见到你。",
+      "right": "很高兴见到你。"
+    },
+    {
+      "wrong": "我要去洗手间。",
+      "right": "我去上厕所。"
+    },
+    {
+      "wrong": "我想要看电影。",
+      "right": "我想看电影。"
+    },
+    {
+      "wrong": "我很累，我需要休息。",
+      "right": "我累死了。"
+    }
+  ]
 }

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080">
+<title>LangCard Studio — Slide 05</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=DM+Sans:wght@400;500;700;900&display=swap');
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body {
+    width: 1080px;
+    height: 1080px;
+    overflow: hidden;
+  }
+
+  body {
+    background-color: #0D1B2A;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'DM Sans', 'Noto Sans KR', sans-serif;
+  }
+
+  .canvas {
+    width: 1080px;
+    height: 1080px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 100px 120px;
+  }
+
+  .canvas::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background:
+      radial-gradient(ellipse at center, rgba(255, 213, 79, 0.07) 0%, transparent 65%);
+    pointer-events: none;
+  }
+
+  .top-line {
+    position: absolute;
+    top: 72px;
+    left: 120px;
+    right: 120px;
+    height: 1px;
+    background: rgba(255, 213, 79, 0.25);
+  }
+
+  .bottom-line {
+    position: absolute;
+    bottom: 72px;
+    left: 120px;
+    right: 120px;
+    height: 1px;
+    background: rgba(255, 213, 79, 0.25);
+  }
+
+  .slide-number {
+    position: absolute;
+    top: 88px;
+    right: 120px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 28px;
+    font-weight: 400;
+    color: rgba(255, 213, 79, 0.45);
+    letter-spacing: 0.08em;
+  }
+
+  .content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0;
+    z-index: 1;
+  }
+
+  .cta-label {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 30px;
+    font-weight: 500;
+    color: rgba(255, 213, 79, 0.7);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 36px;
+  }
+
+  .cta-main {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 58px;
+    font-weight: 900;
+    color: #FFFFFF;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+    margin-bottom: 20px;
+  }
+
+  .cta-main .gold {
+    color: #FFD54F;
+  }
+
+  .cta-sub {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 36px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.65);
+    line-height: 1.5;
+    margin-bottom: 56px;
+  }
+
+  /* Divider */
+  .divider {
+    width: 60px;
+    height: 2px;
+    background: rgba(255, 213, 79, 0.4);
+    margin: 0 auto 48px;
+    border-radius: 1px;
+  }
+
+  /* Account handle */
+  .handle {
+    display: inline-block;
+    background: rgba(255, 213, 79, 0.12);
+    border: 1px solid rgba(255, 213, 79, 0.4);
+    border-radius: 100px;
+    padding: 16px 44px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 40px;
+    font-weight: 700;
+    color: #FFD54F;
+    letter-spacing: 0.01em;
+    margin-bottom: 52px;
+  }
+
+  /* Flag row */
+  .flag-row {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+  }
+
+  .flag {
+    font-size: 44px;
+    line-height: 1;
+  }
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="top-line"></div>
+  <div class="bottom-line"></div>
+  <div class="slide-number">05 / 05</div>
+
+  <div class="content">
+    <p class="cta-label">Follow Us</p>
+
+    <h2 class="cta-main">
+      지금 팔로우하고<br>
+      <span class="gold">매일 받아보세요.</span>
+    </h2>
+
+    <p class="cta-sub">
+      3개국어 표현, 하루 한 장씩.
+    </p>
+
+    <div class="divider"></div>
+
+    <div class="handle">@langcard.studio</div>
+
+    <div class="flag-row">
+      <span class="flag">🇺🇸</span>
+      <span class="flag">🇨🇳</span>
+      <span class="flag">🇯🇵</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

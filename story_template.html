@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>LangCard Studio — Story</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1080px;
+    height: 1920px;
+    overflow: hidden;
+  }
+
+  .story {
+    width: 1080px;
+    height: 1920px;
+    background: linear-gradient(170deg, #ff6ec7 0%, #a855f7 45%, #3b82f6 100%);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  /* 도트 격자 */
+  .story::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.10) 1.5px, transparent 1.5px);
+    background-size: 36px 36px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* 배경 글로우 orbs */
+  .orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .orb1 { width: 700px; height: 700px; background: #ff6ec7; top: -200px; right: -200px; }
+  .orb2 { width: 600px; height: 600px; background: #3b82f6; bottom: -100px; left: -150px; }
+
+  /* ── 상단 브랜딩 ─────────────── */
+  .top-bar {
+    position: relative; z-index: 10;
+    width: 100%;
+    padding: 90px 72px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .brand {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .brand-lc {
+    font-size: 72px; font-weight: 900;
+    color: #fff;
+    letter-spacing: -2px;
+    font-family: 'Georgia', serif;
+    line-height: 1;
+    text-shadow: 0 2px 20px rgba(0,0,0,0.25);
+  }
+  .brand-name {
+    font-size: 22px; font-weight: 600;
+    color: rgba(255,255,255,0.75);
+    letter-spacing: 4px;
+    text-transform: uppercase;
+  }
+  .date-badge {
+    background: rgba(255,255,255,0.2);
+    border: 1.5px solid rgba(255,255,255,0.45);
+    border-radius: 30px;
+    padding: 10px 28px;
+    font-size: 22px; font-weight: 700;
+    color: #fff;
+    backdrop-filter: blur(8px);
+  }
+
+  /* ── 타이틀 ─────────────────── */
+  .title-area {
+    position: relative; z-index: 10;
+    margin-top: 80px;
+    text-align: center;
+    padding: 0 72px;
+  }
+  .title-tag {
+    display: inline-block;
+    background: rgba(255,255,255,0.18);
+    border: 1.5px solid rgba(255,255,255,0.45);
+    border-radius: 40px;
+    padding: 12px 40px;
+    font-size: 28px; font-weight: 700;
+    color: #fff;
+    letter-spacing: 2px;
+    margin-bottom: 28px;
+    backdrop-filter: blur(6px);
+  }
+  .title-main {
+    font-size: 62px; font-weight: 900;
+    color: #fff;
+    line-height: 1.15;
+    text-shadow: 0 2px 24px rgba(0,0,0,0.2);
+    letter-spacing: -1px;
+  }
+  .title-sub {
+    font-size: 32px; color: rgba(255,255,255,0.7);
+    margin-top: 16px; letter-spacing: 1px;
+  }
+
+  /* ── 언어 카드 3개 ───────────── */
+  .cards-area {
+    position: relative; z-index: 10;
+    margin-top: 64px;
+    width: 100%;
+    padding: 0 56px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+  .lang-card {
+    background: rgba(255,255,255,0.14);
+    border: 1.5px solid rgba(255,255,255,0.35);
+    border-radius: 28px;
+    padding: 36px 48px;
+    backdrop-filter: blur(10px);
+  }
+  .lang-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+  .flag { font-size: 36px; }
+  .lang-name {
+    font-size: 26px; font-weight: 700;
+    color: rgba(255,255,255,0.8);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .expression {
+    font-size: 42px; font-weight: 800;
+    color: #fff;
+    line-height: 1.25;
+    text-shadow: 0 1px 12px rgba(0,0,0,0.2);
+    margin-bottom: 10px;
+  }
+  .pronunciation {
+    font-size: 26px; color: rgba(255,255,255,0.6);
+    margin-bottom: 10px;
+  }
+  .translation {
+    font-size: 28px; font-weight: 600;
+    color: rgba(255,255,255,0.85);
+    border-left: 3px solid rgba(255,255,255,0.5);
+    padding-left: 16px;
+  }
+
+  /* ── 하단 CTA ────────────────── */
+  .cta-area {
+    position: relative; z-index: 10;
+    margin-top: auto;
+    margin-bottom: 90px;
+    text-align: center;
+    padding: 0 72px;
+    width: 100%;
+  }
+  .cta-box {
+    background: rgba(255,255,255,0.18);
+    border: 1.5px solid rgba(255,255,255,0.45);
+    border-radius: 28px;
+    padding: 40px 48px;
+    backdrop-filter: blur(10px);
+  }
+  .cta-text {
+    font-size: 36px; font-weight: 800;
+    color: #fff;
+    line-height: 1.4;
+    margin-bottom: 20px;
+  }
+  .cta-handle {
+    font-size: 28px; font-weight: 700;
+    color: rgba(255,255,255,0.75);
+    letter-spacing: 2px;
+  }
+
+  /* 구분선 */
+  .divider {
+    position: relative; z-index: 10;
+    width: calc(100% - 112px);
+    height: 1px;
+    background: rgba(255,255,255,0.25);
+    margin: 48px 56px 0;
+  }
+</style>
+</head>
+<body>
+<div class="story">
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+
+  <!-- 상단 브랜딩 -->
+  <div class="top-bar">
+    <div class="brand">
+      <div class="brand-lc">LC</div>
+      <div class="brand-name">LangCard Studio</div>
+    </div>
+    <div class="date-badge" id="date-badge">오늘의 표현</div>
+  </div>
+
+  <!-- 타이틀 -->
+  <div class="title-area">
+    <div class="title-tag">🌅 아침 인사 표현</div>
+    <div class="title-main" id="title-main">오늘의 인사<br>3개국어로!</div>
+    <div class="title-sub">영어 · 중국어 · 일본어</div>
+  </div>
+
+  <!-- 언어 카드들 -->
+  <div class="cards-area">
+    <!-- 영어 -->
+    <div class="lang-card">
+      <div class="lang-header">
+        <span class="flag">🇺🇸</span>
+        <span class="lang-name">English</span>
+      </div>
+      <div class="expression" id="en-expr">We haven't been formally introduced!</div>
+      <div class="translation" id="en-ko">→ 아직 정식으로 소개를 못 했죠!</div>
+    </div>
+
+    <!-- 중국어 -->
+    <div class="lang-card">
+      <div class="lang-header">
+        <span class="flag">🇨🇳</span>
+        <span class="lang-name">中文</span>
+      </div>
+      <div class="expression" id="zh-expr">哎，你也来啦，昨天睡几点啊？</div>
+      <div class="pronunciation" id="zh-pron">Āi, nǐ yě lái la, zuótiān shuì jǐ diǎn a?</div>
+      <div class="translation" id="zh-ko">→ 야, 너도 왔어? 어제 몇 시에 잤어?</div>
+    </div>
+
+    <!-- 일본어 -->
+    <div class="lang-card">
+      <div class="lang-header">
+        <span class="flag">🇯🇵</span>
+        <span class="lang-name">日本語</span>
+      </div>
+      <div class="expression" id="ja-expr">おはよう！今日って休みだっけ？</div>
+      <div class="pronunciation" id="ja-pron">Ohayou! Kyou tte yasumi dakke?</div>
+      <div class="translation" id="ja-ko">→ 좋은 아침! 오늘 쉬는 날이었나?</div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- CTA -->
+  <div class="cta-area">
+    <div class="cta-box">
+      <div class="cta-text">💾 저장하고 매일 복습하기!</div>
+      <div class="cta-handle">@langcard.studio</div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

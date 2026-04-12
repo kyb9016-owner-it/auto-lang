@@ -22,6 +22,7 @@ from renderer import card as card_renderer
 from renderer import fonts as F
 from renderer import reel as reel_renderer
 from renderer import tts_gen
+from renderer import vocab_card as vocab_renderer
 from fetcher.unsplash import fetch_city_bg
 from uploader import cloudinary_up
 
@@ -43,6 +44,7 @@ class GenerationResult:
     recap_pngs: List[str] = field(default_factory=list)
     recap_meta: List[Tuple[str, str]] = field(default_factory=list)
     hook_reel_url: Optional[str] = None
+    vocab_pngs: List[str] = field(default_factory=list)
     recap_card_urls: List[str] = field(default_factory=list)
     step_times: Dict[str, float] = field(default_factory=dict)
 
@@ -87,18 +89,25 @@ def _step3_render(result: GenerationResult, track_times: bool) -> None:
     print(f"\n[3/7] 카드 이미지 렌더링 (3장)")
     t0 = time.time()
     os.makedirs("tmp", exist_ok=True)
-    bg_path = fetch_city_bg(result.lang, result.slot)
+    # Apple 디자인: 솔리드 컬러 배경 사용 (Unsplash 사진 비활성화)
+    bg_path = None
 
     result.hook_png = card_renderer.render_hook_card(
-        result.hook_data["hook"], result.lang, result.today,
+        result.hook_data, result.lang, result.today,
         slot=result.slot, bg_path=bg_path)
     result.wr_png = card_renderer.render_wrong_right_card(
         result.hook_data, result.lang, result.today,
         slot=result.slot, bg_path=bg_path)
     result.cta_png = card_renderer.render_cta_card(
-        result.hook_data.get("cta", "이거 몰랐으면 저장해두세요"),
-        result.lang, result.today,
+        result.hook_data, result.lang, result.today,
         slot=result.slot, bg_path=bg_path)
+
+    vocab_list = result.hook_data.get("vocab", [])
+    if vocab_list:
+        result.vocab_pngs = vocab_renderer.render_vocab_cards(
+            vocab_list, result.lang, result.today, slot=result.slot)
+    else:
+        result.vocab_pngs = []
 
     if track_times:
         result.step_times["step3_render"] = time.time() - t0

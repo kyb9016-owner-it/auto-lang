@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080">
+<title>LangCard Studio — Slide 01</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=DM+Sans:wght@400;500;700;900&display=swap');
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body {
+    width: 1080px;
+    height: 1080px;
+    overflow: hidden;
+  }
+
+  body {
+    background-color: #0D1B2A;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'DM Sans', 'Noto Sans KR', sans-serif;
+  }
+
+  .canvas {
+    width: 1080px;
+    height: 1080px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 100px 120px;
+  }
+
+  /* Subtle background accent lines */
+  .canvas::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background:
+      linear-gradient(135deg, rgba(255, 213, 79, 0.04) 0%, transparent 50%),
+      linear-gradient(315deg, rgba(255, 213, 79, 0.03) 0%, transparent 50%);
+    pointer-events: none;
+  }
+
+  /* Top decorative line */
+  .top-line {
+    position: absolute;
+    top: 72px;
+    left: 120px;
+    right: 120px;
+    height: 1px;
+    background: rgba(255, 213, 79, 0.25);
+  }
+
+  /* Bottom decorative line */
+  .bottom-line {
+    position: absolute;
+    bottom: 72px;
+    left: 120px;
+    right: 120px;
+    height: 1px;
+    background: rgba(255, 213, 79, 0.25);
+  }
+
+  /* Slide number */
+  .slide-number {
+    position: absolute;
+    top: 88px;
+    right: 120px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 28px;
+    font-weight: 400;
+    color: rgba(255, 213, 79, 0.45);
+    letter-spacing: 0.08em;
+  }
+
+  .content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 0;
+    z-index: 1;
+  }
+
+  /* Flag row */
+  .flag-row {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 56px;
+  }
+
+  .flag {
+    font-size: 52px;
+    line-height: 1;
+  }
+
+  /* Main title */
+  .brand-name {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 96px;
+    font-weight: 900;
+    color: #FFD54F;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    margin-bottom: 32px;
+  }
+
+  /* Divider dot */
+  .divider {
+    width: 48px;
+    height: 2px;
+    background: rgba(255, 213, 79, 0.4);
+    margin: 0 auto 40px;
+    border-radius: 1px;
+  }
+
+  /* Subtitle */
+  .subtitle {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 40px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.85);
+    line-height: 1.6;
+    letter-spacing: -0.01em;
+  }
+
+  .subtitle .highlight {
+    color: #FFD54F;
+    font-weight: 700;
+  }
+
+  /* Bottom tagline */
+  .tagline {
+    position: absolute;
+    bottom: 88px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 28px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.35);
+    letter-spacing: 0.05em;
+  }
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="top-line"></div>
+  <div class="bottom-line"></div>
+  <div class="slide-number">01 / 05</div>
+
+  <div class="content">
+    <div class="flag-row">
+      <span class="flag">🇺🇸</span>
+      <span class="flag">🇨🇳</span>
+      <span class="flag">🇯🇵</span>
+    </div>
+
+    <h1 class="brand-name">LangCard Studio</h1>
+
+    <div class="divider"></div>
+
+    <p class="subtitle">
+      매일, <span class="highlight">3개국어</span>로.<br>
+      진짜 쓰는 표현만 골랐어요.
+    </p>
+  </div>
+
+  <p class="tagline">@langcard.studio</p>
+</div>
+</body>
+</html>

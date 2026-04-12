@@ -12,6 +12,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8081", "--directory", "."],
       "port": 8081
+    },
+    {
+      "name": "toss-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "/Users/kong/projects/toss-langcard/frontend"],
+      "port": 5173
     }
   ]
 }

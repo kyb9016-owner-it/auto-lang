@@ -73,6 +73,10 @@ def run(dry_run: bool, slot: str, forced_topic=None) -> None:
         print(f"  HOOK 카드  : {result.hook_png}")
         print(f"  W→R 카드   : {result.wr_png}")
         print(f"  CTA 카드   : {result.cta_png}")
+        if result.vocab_pngs:
+            print(f"  단어 카드  : {len(result.vocab_pngs)}장")
+            for vp in result.vocab_pngs:
+                print(f"    {vp}")
         print(f"  TTS        : {result.hook_tts or '없음'}")
         print(f"  HOOK 릴스  : {result.hook_reel_path}")
         if result.recap_pngs:

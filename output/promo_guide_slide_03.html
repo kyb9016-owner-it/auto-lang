@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080">
+<title>LangCard Studio — Guide Slide 03</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=DM+Sans:wght@400;500;700;900&display=swap');
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body {
+    width: 1080px;
+    height: 1080px;
+    overflow: hidden;
+  }
+
+  body {
+    background-color: #0D1B2A;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'DM Sans', 'Noto Sans KR', sans-serif;
+  }
+
+  .canvas {
+    width: 1080px;
+    height: 1080px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: 100px 120px;
+  }
+
+  .canvas::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(225deg, rgba(255, 213, 79, 0.04) 0%, transparent 55%);
+    pointer-events: none;
+  }
+
+  .top-line {
+    position: absolute;
+    top: 72px;
+    left: 120px;
+    right: 120px;
+    height: 1px;
+    background: rgba(255, 213, 79, 0.25);
+  }
+
+  .bottom-line {
+    position: absolute;
+    bottom: 72px;
+    left: 120px;
+    right: 120px;
+    height: 1px;
+    background: rgba(255, 213, 79, 0.25);
+  }
+
+  .slide-number {
+    position: absolute;
+    top: 88px;
+    right: 120px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 28px;
+    font-weight: 400;
+    color: rgba(255, 213, 79, 0.45);
+    letter-spacing: 0.08em;
+  }
+
+  /* Content type badge */
+  .type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(255, 213, 79, 0.1);
+    border: 1px solid rgba(255, 213, 79, 0.3);
+    border-radius: 100px;
+    padding: 10px 28px;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 26px;
+    font-weight: 500;
+    color: #FFD54F;
+    letter-spacing: 0.04em;
+    margin-bottom: 32px;
+    z-index: 1;
+  }
+
+  .header {
+    margin-bottom: 52px;
+    z-index: 1;
+  }
+
+  .slide-title {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 52px;
+    font-weight: 700;
+    color: #FFFFFF;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+  }
+
+  /* Two-column content blocks */
+  .content-blocks {
+    display: flex;
+    gap: 32px;
+    flex: 1;
+    align-items: stretch;
+    z-index: 1;
+  }
+
+  .content-block {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 213, 79, 0.18);
+    border-radius: 16px;
+    padding: 36px 32px;
+    gap: 20px;
+  }
+
+  .block-icon {
+    font-size: 52px;
+    line-height: 1;
+  }
+
+  .block-title {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 36px;
+    font-weight: 700;
+    color: #FFD54F;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+
+  .block-desc {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 28px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.6);
+    line-height: 1.6;
+    flex: 1;
+  }
+
+  .block-tag {
+    display: inline-block;
+    background: rgba(255, 213, 79, 0.12);
+    border: 1px solid rgba(255, 213, 79, 0.25);
+    border-radius: 6px;
+    padding: 6px 16px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+    color: rgba(255, 213, 79, 0.8);
+    letter-spacing: 0.04em;
+    align-self: flex-start;
+  }
+
+  /* Equation at bottom */
+  .equation {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 36px;
+    z-index: 1;
+  }
+
+  .eq-term {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 30px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  .eq-op {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 30px;
+    font-weight: 300;
+    color: rgba(255, 213, 79, 0.5);
+  }
+
+  .eq-result {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 30px;
+    font-weight: 700;
+    color: #FFD54F;
+  }
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="top-line"></div>
+  <div class="bottom-line"></div>
+  <div class="slide-number">03 / 05</div>
+
+  <div class="type-badge">🎧 단어 카드 + 숏릴스</div>
+
+  <div class="header">
+    <h2 class="slide-title">단어도 쌓고,<br>발음도 귀로</h2>
+  </div>
+
+  <div class="content-blocks">
+    <div class="content-block">
+      <span class="block-icon">🃏</span>
+      <h3 class="block-title">단어 카드</h3>
+      <p class="block-desc">매일 올라오는 단어 카드로 어휘를 차근차근 늘려보세요.</p>
+      <span class="block-tag">Daily Vocab</span>
+    </div>
+
+    <div class="content-block">
+      <span class="block-icon">▶</span>
+      <h3 class="block-title">숏릴스</h3>
+      <p class="block-desc">원어민 발음을 영상으로 직접 들으며 귀도 함께 훈련하세요.</p>
+      <span class="block-tag">Reels</span>
+    </div>
+  </div>
+
+  <div class="equation">
+    <span class="eq-term">읽기</span>
+    <span class="eq-op">+</span>
+    <span class="eq-term">듣기</span>
+    <span class="eq-op">=</span>
+    <span class="eq-result">제대로 기억</span>
+  </div>
+</div>
+</body>
+</html>

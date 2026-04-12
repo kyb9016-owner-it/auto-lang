@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>LangCard Studio — Promo Feed</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 1080px;
+    height: 1080px;
+    overflow: hidden;
+    background: #000;
+  }
+
+  .card {
+    width: 1080px;
+    height: 1080px;
+    background: linear-gradient(160deg, #0f0c29 0%, #302b63 55%, #1a1a3e 100%);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.08) 1.5px, transparent 1.5px);
+    background-size: 30px 30px;
+    z-index: 0;
+  }
+
+  .orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(100px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .orb1 { width: 600px; height: 600px; background: #a855f7; opacity: 0.4; top: -150px; right: -100px; }
+  .orb2 { width: 500px; height: 500px; background: #3b82f6; opacity: 0.3; bottom: -100px; left: -100px; }
+  .orb3 { width: 300px; height: 300px; background: #ff6ec7; opacity: 0.25; top: 300px; left: -50px; }
+
+  .content {
+    position: relative; z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    padding: 0 80px;
+    gap: 0;
+  }
+
+  /* 언어 뱃지 */
+  .lang-row {
+    display: flex; gap: 16px;
+    margin-bottom: 56px;
+  }
+  .badge {
+    background: rgba(255,255,255,0.12);
+    border: 1.5px solid rgba(255,255,255,0.3);
+    border-radius: 30px;
+    padding: 10px 30px;
+    font-size: 26px; font-weight: 700;
+    color: rgba(255,255,255,0.9);
+  }
+
+  /* 헤드라인 */
+  .headline {
+    text-align: center;
+    margin-bottom: 44px;
+  }
+  .headline-top {
+    font-size: 38px; font-weight: 700;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  .headline-main {
+    font-size: 92px; font-weight: 900;
+    color: #fff;
+    line-height: 1.05;
+    letter-spacing: -2px;
+    text-shadow: 0 4px 40px rgba(168,85,247,0.4);
+  }
+  .headline-main .accent {
+    background: linear-gradient(135deg, #ff6ec7, #a855f7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* 구분선 */
+  .divider {
+    width: 80px; height: 3px;
+    background: linear-gradient(90deg, #ff6ec7, #a855f7, #3b82f6);
+    border-radius: 2px;
+    margin-bottom: 44px;
+  }
+
+  /* 표현 예시 row */
+  .sample-row {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 52px;
+    width: 100%;
+  }
+  .sample-item {
+    flex: 1;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 20px;
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .sample-flag { font-size: 32px; }
+  .sample-expr {
+    font-size: 24px; font-weight: 700;
+    color: #fff;
+    line-height: 1.3;
+  }
+  .sample-ko {
+    font-size: 19px;
+    color: rgba(255,255,255,0.5);
+    line-height: 1.3;
+  }
+
+  /* 하단 */
+  .bottom {
+    text-align: center;
+  }
+  .handle {
+    font-size: 34px; font-weight: 800;
+    color: rgba(255,255,255,0.85);
+    letter-spacing: 2px;
+  }
+  .tagline {
+    font-size: 22px;
+    color: rgba(255,255,255,0.4);
+    margin-top: 10px;
+    letter-spacing: 1px;
+  }
+
+  .ring {
+    position: absolute; inset: 0;
+    border: 2px solid transparent;
+    background: linear-gradient(#0f0c29, #0f0c29) padding-box,
+                linear-gradient(160deg, rgba(168,85,247,0.4) 0%, rgba(59,130,246,0.2) 100%) border-box;
+    pointer-events: none;
+    z-index: 5;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+  <div class="orb orb3"></div>
+
+  <div class="content">
+
+    <div class="lang-row">
+      <div class="badge">🇺🇸 English</div>
+      <div class="badge">🇨🇳 中文</div>
+      <div class="badge">🇯🇵 日本語</div>
+    </div>
+
+    <div class="headline">
+      <div class="headline-top">Daily Language Card</div>
+      <div class="headline-main">3개국어를<br><span class="accent">한 번에</span></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- 각 언어 표현 샘플 -->
+    <div class="sample-row">
+      <div class="sample-item">
+        <span class="sample-flag">🇺🇸</span>
+        <div class="sample-expr">We haven't<br>been introduced!</div>
+        <div class="sample-ko">아직 인사를 못 했죠!</div>
+      </div>
+      <div class="sample-item">
+        <span class="sample-flag">🇨🇳</span>
+        <div class="sample-expr">老板，<br>再来一碗！</div>
+        <div class="sample-ko">사장님, 한 그릇 더요!</div>
+      </div>
+      <div class="sample-item">
+        <span class="sample-flag">🇯🇵</span>
+        <div class="sample-expr">おすすめ<br>は何ですか？</div>
+        <div class="sample-ko">추천 메뉴가 뭐예요?</div>
+      </div>
+    </div>
+
+    <div class="bottom">
+      <div class="handle">@langcard.studio</div>
+      <div class="tagline">오늘의 표현 · 오늘의 단어</div>
+    </div>
+
+  </div>
+
+  <div class="ring"></div>
+</div>
+</body>
+</html>

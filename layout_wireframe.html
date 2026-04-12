@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>LangCard 레이아웃 와이어프레임</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #1a1a2e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px;
+    font-family: 'Noto Sans KR', sans-serif;
+    gap: 20px;
+  }
+  h1 { color: #eee; font-size: 16px; margin-bottom: 10px; }
+  .info { color: #aaa; font-size: 12px; margin-bottom: 20px; }
+
+  /* 카드 컨테이너 (1080×1080 → 540×540 50% 축소) */
+  .card {
+    position: relative;
+    width: 540px;
+    height: 540px;
+    background: linear-gradient(160deg, #ff6ec7 0%, #a855f7 50%, #3b82f6 100%);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+  }
+
+  /* 격자 오버레이 */
+  .card::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.12) 1px, transparent 1px);
+    background-size: 10px 10px;
+    pointer-events: none;
+  }
+
+  /* 공통 블록 스타일 */
+  .block {
+    position: absolute;
+    border: 1.5px dashed rgba(255,255,255,0.5);
+    background: rgba(255,255,255,0.08);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: rgba(255,255,255,0.85);
+    text-align: center;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .block:hover { background: rgba(255,255,255,0.18); }
+
+  /* 배지 */
+  .badge-lang {
+    left: 32px; top: 30px;
+    width: 90px; height: 26px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 13px;
+    font-size: 9px;
+    border: 1.5px solid rgba(255,255,255,0.6);
+  }
+  .badge-topic {
+    right: 32px; top: 30px;
+    width: 90px; height: 26px;
+    background: rgba(255,220,0,0.3);
+    border-radius: 13px;
+    font-size: 9px;
+    border: 1.5px solid rgba(255,220,0,0.8);
+    color: #ffe;
+  }
+
+  /* ── 표현 섹션 ─────────────────────── */
+  /* 현재 레이아웃 기준 (avail_top=56px → y=56+top_pad) */
+
+  .label-expr {
+    left: 32px; top: 115px;
+    width: 70px; height: 14px;
+    font-size: 8px;
+    border-style: solid;
+    border-color: rgba(255,255,255,0.4);
+    background: transparent;
+    justify-content: flex-start;
+    padding-left: 4px;
+  }
+
+  .main-expr {
+    left: 32px; top: 132px;
+    width: 476px; height: 52px;
+    border-color: rgba(255,255,200,0.7);
+    background: rgba(255,255,200,0.08);
+    font-size: 11px; font-weight: bold;
+    color: #ffffcc;
+  }
+
+  .pron {
+    left: 32px; top: 187px;
+    width: 476px; height: 20px;
+    border-color: rgba(200,200,255,0.6);
+    font-size: 8px; color: #ccc;
+  }
+
+  .ko-pill {
+    left: 80px; top: 210px;
+    width: 380px; height: 36px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 8px;
+    border-color: rgba(255,255,255,0.5);
+    font-size: 10px; font-weight: bold;
+  }
+
+  .divider-inner {
+    left: 32px; top: 252px;
+    width: 476px; height: 1px;
+    background: rgba(255,255,255,0.3);
+    border: none;
+  }
+
+  .bonus-expr {
+    left: 32px; top: 260px;
+    width: 476px; height: 24px;
+    border-color: rgba(255,255,200,0.5);
+    font-size: 9px; color: #ffffe0;
+  }
+  .bonus-pron {
+    left: 32px; top: 287px;
+    width: 476px; height: 16px;
+    border-color: rgba(200,200,255,0.4);
+    font-size: 8px; color: #bbb;
+  }
+  .bonus-ko {
+    left: 32px; top: 306px;
+    width: 476px; height: 18px;
+    border-color: rgba(200,200,255,0.4);
+    font-size: 8px; color: #bbb;
+  }
+
+  /* ── 단어 섹션 구분선 ─────────────────── */
+  .divider-section {
+    left: 32px; top: 342px;
+    width: 476px; height: 1px;
+    background: rgba(255,255,255,0.25);
+    border: none;
+  }
+
+  /* ── 단어 섹션 ─────────────────────────── */
+  .label-vocab {
+    left: 32px; top: 350px;
+    width: 70px; height: 14px;
+    font-size: 8px;
+    border-style: solid;
+    border-color: rgba(255,255,255,0.4);
+    background: transparent;
+    justify-content: flex-start;
+    padding-left: 4px;
+  }
+
+  /* 단어 row 1 */
+  .vocab-word { font-size: 9px; font-weight: bold; color: #fff; }
+  .vocab-mean { font-size: 8px; color: rgba(255,255,255,0.7); }
+
+  .vocab-row1 {
+    left: 32px; top: 368px;
+    width: 476px; height: 22px;
+    border-color: rgba(100,255,200,0.5);
+    font-size: 9px;
+  }
+  .vocab-pron1 {
+    left: 32px; top: 392px;
+    width: 476px; height: 14px;
+    border-color: rgba(100,255,200,0.3);
+    font-size: 7px; color: #aaffcc;
+  }
+  .vocab-row2 {
+    left: 32px; top: 410px;
+    width: 476px; height: 22px;
+    border-color: rgba(100,255,200,0.5);
+    font-size: 9px;
+  }
+  .vocab-pron2 {
+    left: 32px; top: 434px;
+    width: 476px; height: 14px;
+    border-color: rgba(100,255,200,0.3);
+    font-size: 7px; color: #aaffcc;
+  }
+  .vocab-row3 {
+    left: 32px; top: 452px;
+    width: 476px; height: 22px;
+    border-color: rgba(100,255,200,0.5);
+    font-size: 9px;
+  }
+  .vocab-pron3 {
+    left: 32px; top: 476px;
+    width: 476px; height: 14px;
+    border-color: rgba(100,255,200,0.3);
+    font-size: 7px; color: #aaffcc;
+  }
+
+  /* 워터마크 */
+  .watermark {
+    left: 155px; top: 515px;
+    width: 230px; height: 14px;
+    font-size: 7px;
+    border-color: rgba(255,255,255,0.25);
+    color: rgba(255,255,255,0.4);
+  }
+
+  /* 범례 */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: 540px;
+    justify-content: center;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 11px; color: #ccc;
+  }
+  .legend-swatch {
+    width: 14px; height: 10px;
+    border-radius: 2px;
+    border: 1px dashed;
+  }
+
+  /* 치수 표시 */
+  .dim-label {
+    position: absolute;
+    font-size: 7px;
+    color: rgba(255,255,100,0.7);
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<h1>🃏 LangCard Studio — 레이아웃 와이어프레임 (1:2 축소)</h1>
+<p class="info">각 블록 위에 마우스를 올리면 하이라이트됩니다 | 실제 카드: 1080×1080px</p>
+
+<div class="card">
+
+  <!-- 배지 -->
+  <div class="block badge-lang">🏳 ENG / 中文 / 日本語</div>
+  <div class="block badge-topic">✈ TRAVEL / CAFE / …</div>
+
+  <!-- 표현 섹션 -->
+  <div class="block label-expr">오늘의 표현</div>
+  <div class="block main-expr">메인 표현<br><span style="font-size:9px;opacity:.7">(최대 96pt → 44pt 자동조절)</span></div>
+  <div class="block pron">발음 (pinyin / romaji) — 중·일만</div>
+  <div class="block ko-pill">한국어 번역 pill</div>
+
+  <!-- 내부 구분선 -->
+  <div class="divider-inner"></div>
+
+  <!-- 보너스 -->
+  <div class="block bonus-expr">보너스 표현 (40pt)</div>
+  <div class="block bonus-pron">보너스 발음 — 중·일만</div>
+  <div class="block bonus-ko">보너스 한국어</div>
+
+  <!-- 섹션 구분선 -->
+  <div class="divider-section"></div>
+
+  <!-- 단어 섹션 -->
+  <div class="block label-vocab">오늘의 단어</div>
+
+  <div class="block vocab-row1">단어₁  뜻</div>
+  <div class="block vocab-pron1">발음₁ — 중·일만</div>
+  <div class="block vocab-row2">단어₂  뜻</div>
+  <div class="block vocab-pron2">발음₂ — 중·일만</div>
+  <div class="block vocab-row3">단어₃  뜻</div>
+  <div class="block vocab-pron3">발음₃ — 중·일만</div>
+
+  <!-- 워터마크 -->
+  <div class="block watermark">@langcard.studio</div>
+
+</div>
+
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color:rgba(255,255,200,0.7); background:rgba(255,255,200,0.1)"></div>
+    <span>메인 표현 / 보너스</span>
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color:rgba(200,200,255,0.6); background:rgba(200,200,255,0.05)"></div>
+    <span>발음 / 번역</span>
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color:rgba(100,255,200,0.5); background:rgba(100,255,200,0.05)"></div>
+    <span>단어 섹션</span>
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color:rgba(255,220,0,0.8); background:rgba(255,220,0,0.05)"></div>
+    <span>배지</span>
+  </div>
+</div>
+
+<p class="info" style="margin-top:8px">위치·크기 조정 원하시면 말씀해 주세요!</p>
+
+</body>
+</html>

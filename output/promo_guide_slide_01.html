@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080">
+<title>LangCard Studio — Guide Slide 01</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=DM+Sans:wght@400;500;700;900&display=swap');
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body {
+    width: 1080px;
+    height: 1080px;
+    overflow: hidden;
+  }
+
+  body {
+    background-color: #0D1B2A;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'DM Sans', 'Noto Sans KR', sans-serif;
+  }
+
+  .canvas {
+    width: 1080px;
+    height: 1080px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 100px 120px;
+  }
+
+  /* Subtle radial glow */
+  .canvas::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(ellipse at center, rgba(255, 213, 79, 0.07) 0%, transparent 65%);
+    pointer-events: none;
+  }
+
+  .top-line {
+    position: absolute;
+    top: 72px;
+    left: 120px;
+    right: 120px;
+    height: 1px;
+    background: rgba(255, 213, 79, 0.25);
+  }
+
+  .bottom-line {
+    position: absolute;
+    bottom: 72px;
+    left: 120px;
+    right: 120px;
+    height: 1px;
+    background: rgba(255, 213, 79, 0.25);
+  }
+
+  .slide-number {
+    position: absolute;
+    top: 88px;
+    right: 120px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 28px;
+    font-weight: 400;
+    color: rgba(255, 213, 79, 0.45);
+    letter-spacing: 0.08em;
+  }
+
+  .content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    z-index: 1;
+    gap: 0;
+    width: 100%;
+  }
+
+  /* Eyebrow label */
+  .eyebrow {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 28px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.38);
+    letter-spacing: 0.12em;
+    margin-bottom: 52px;
+  }
+
+  /* Big headline */
+  .headline {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 90px;
+    font-weight: 900;
+    color: #FFD54F;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin-bottom: 44px;
+  }
+
+  /* Divider */
+  .divider {
+    width: 48px;
+    height: 2px;
+    background: rgba(255, 213, 79, 0.4);
+    margin: 0 auto 52px;
+    border-radius: 1px;
+  }
+
+  /* Three language rows — each language gets its own line */
+  .lang-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    width: 100%;
+    margin-bottom: 56px;
+  }
+
+  .lang-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+  }
+
+  .lang-flag {
+    font-size: 38px;
+    line-height: 1;
+  }
+
+  .lang-text {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 36px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.72);
+    line-height: 1;
+  }
+
+  /* Bottom tagline */
+  .tagline {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 30px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.35);
+    letter-spacing: 0.04em;
+    line-height: 1.7;
+  }
+
+  /* Bottom handle */
+  .handle {
+    position: absolute;
+    bottom: 88px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 26px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.22);
+    letter-spacing: 0.06em;
+  }
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="top-line"></div>
+  <div class="bottom-line"></div>
+  <div class="slide-number">01 / 05</div>
+
+  <div class="content">
+    <p class="eyebrow">LangCard Studio 활용법</p>
+
+    <h1 class="headline">매일, 3개국어</h1>
+
+    <div class="divider"></div>
+
+    <div class="lang-rows">
+      <div class="lang-row">
+        <span class="lang-flag">🇺🇸</span>
+        <span class="lang-text">영어 표현 하나</span>
+      </div>
+      <div class="lang-row">
+        <span class="lang-flag">🇨🇳</span>
+        <span class="lang-text">중국어 표현 하나</span>
+      </div>
+      <div class="lang-row">
+        <span class="lang-flag">🇯🇵</span>
+        <span class="lang-text">일본어 표현 하나</span>
+      </div>
+    </div>
+
+    <p class="tagline">하루 3가지 표현이<br>매일 쌓입니다.</p>
+  </div>
+
+  <p class="handle">@langcard.studio</p>
+</div>
+</body>
+</html>
