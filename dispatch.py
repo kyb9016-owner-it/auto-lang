@@ -78,9 +78,10 @@ def dispatch(slot: str | None, dry_run: bool = False,
         f"언어: {' · '.join(langs_to_run)}"
     )
 
-    reel_count     = 0
-    carousel_count = 0
-    last_data: dict = {}
+    reel_count          = 0
+    carousel_count      = 0
+    last_data: dict     = {}
+    recap_posted        = False   # 한 실행 내에서 recap 중복 방지
 
     for lang in langs_to_run:
         flag = _LANG_FLAG.get(lang, lang)
@@ -128,9 +129,10 @@ def dispatch(slot: str | None, dry_run: bool = False,
             continue
 
         # ── 리캡 캐러셀 (하루 1번만) ──────────────────────────────────
-        if recap_card_urls and not is_slot_posted(today_str, "recap"):
+        if recap_card_urls and not recap_posted and not is_slot_posted(today_str, "recap"):
             try:
                 pipeline.post_recap(recap_card_urls)
+                recap_posted = True
                 carousel_count += 1
                 mark_slot_posted(today_str, "recap")
                 notify.send(f"📸 <b>리캡 캐러셀 업로드 완료</b> ✅ ({len(recap_card_urls)}장)")
