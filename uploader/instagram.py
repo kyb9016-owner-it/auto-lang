@@ -400,6 +400,61 @@ def post_recap_reel(video_url: str, topic: dict,
     return media_id
 
 
+def post_vocab_carousel(image_urls: list, lang: str, hook_data: dict) -> str:
+    """
+    단어 카드 3장을 캐러셀로 포스팅.
+    image_urls: vocab card PNG URLs (Cloudinary)
+    Returns: media_id
+    """
+    lc = LANG_CONFIG[lang]
+    vocab = hook_data.get("vocab", [])
+
+    lines = [
+        f"{lc['flag']} 오늘의 {lc['name_ko']} 단어 3개",
+        "스와이프해서 확인하세요 👉",
+        "",
+    ]
+    for item in vocab:
+        word = item.get("word", "")
+        meaning = item.get("meaning", "")
+        phonetic = item.get("phonetic", "")
+        word_type = item.get("type", "")
+        entry = f"• {word}"
+        if phonetic:
+            entry += f" [{phonetic}]"
+        entry += f"  →  {meaning}"
+        if word_type:
+            entry += f"  ({word_type})"
+        lines.append(entry)
+
+    lines += [
+        "",
+        "💾 저장해두고 오늘 하나씩 써봐요!",
+        "팔로우하면 매일 새로운 표현이 올라와요 🔔",
+        "",
+        LANG_HASHTAGS.get(lang, HASHTAGS),
+    ]
+    caption = "\n".join(lines)
+
+    print(f"  → {lc['name_ko']} 단어 캐러셀 이미지 컨테이너 생성 중...")
+    child_ids = []
+    for i, url in enumerate(image_urls):
+        if i > 0:
+            time.sleep(3)
+        cid = _create_image_container(url, is_carousel_item=True)
+        _wait_ready(cid)
+        child_ids.append(cid)
+        print(f"    ✓ 단어 {i+1}/{len(image_urls)} 준비")
+
+    print(f"  → {lc['name_ko']} 단어 캐러셀 컨테이너 생성 중...")
+    carousel_id = _create_carousel_container(child_ids, caption)
+    _wait_ready(carousel_id)
+    print(f"  → {lc['name_ko']} 단어 캐러셀 게시 중...")
+    media_id = _publish(carousel_id)
+    print(f"  ✓ {lc['name_ko']} 단어 캐러셀 완료! media_id: {media_id}")
+    return media_id
+
+
 # ── 하위 호환 함수 (기존 코드 참조 대비) ────────────────────────────────────
 
 def post_story(image_url: str) -> str:

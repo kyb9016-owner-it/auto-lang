@@ -116,6 +116,7 @@ def dispatch(slot: str | None, dry_run: bool = False,
         hook_data       = data.get("hook_data", {})
         hook_reel_url   = data.get("hook_reel_url")
         recap_card_urls = data.get("recap_card_urls", [])
+        vocab_card_urls = data.get("vocab_card_urls", [])
 
         wrong = hook_data.get("wrong", "")
         right = hook_data.get("right", "")
@@ -146,6 +147,16 @@ def dispatch(slot: str | None, dry_run: bool = False,
             except Exception as e:
                 notify.send(f"❌ <b>{flag} HOOK 릴스 포스팅 실패</b>\n<code>{e}</code>")
                 print(f"  ✗ {flag} 릴스 포스팅 실패: {e}")
+
+        # ── 단어 캐러셀 ──────────────────────────────────────────────
+        if vocab_card_urls:
+            try:
+                time.sleep(5)
+                instagram.post_vocab_carousel(vocab_card_urls, lang, hook_data)
+                notify.send(f"📖 <b>{flag} 단어 캐러셀 업로드 완료</b> ✅ ({len(vocab_card_urls)}장)")
+            except Exception as e:
+                notify.send(f"⚠️ <b>{flag} 단어 캐러셀 실패</b> (건너뜀)\n<code>{e}</code>")
+                print(f"  ⚠ {flag} 단어 캐러셀 실패: {e}")
 
         if len(langs_to_run) > 1:
             time.sleep(5)   # Instagram API rate limit 여유

@@ -46,6 +46,7 @@ class GenerationResult:
     hook_reel_url: Optional[str] = None
     vocab_pngs: List[str] = field(default_factory=list)
     recap_card_urls: List[str] = field(default_factory=list)
+    vocab_card_urls: List[str] = field(default_factory=list)
     step_times: Dict[str, float] = field(default_factory=dict)
 
 
@@ -187,6 +188,18 @@ def _step7_upload(result: GenerationResult, output_dir: str, track_times: bool) 
                 print(f"  ⚠ 리캡 {i} 업로드 실패 (건너뜀): {e}")
 
     result.recap_card_urls = recap_card_urls
+
+    vocab_card_urls: List[str] = []
+    for i, png in enumerate(result.vocab_pngs):
+        try:
+            url = cloudinary_up.upload(
+                png, result.lang, "vocab",
+                suffix=f"w{i+1}", date_str=result.today)
+            vocab_card_urls.append(url)
+        except Exception as e:
+            print(f"  ⚠ vocab {i+1} 업로드 실패 (건너뜀): {e}")
+    result.vocab_card_urls = vocab_card_urls
+
     if track_times:
         result.step_times["step7_upload"] = time.time() - t0
 
