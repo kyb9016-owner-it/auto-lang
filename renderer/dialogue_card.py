@@ -51,8 +51,8 @@ def _is_highlighted(turn: dict, right_text: str, idx: int, total: int) -> bool:
     """하이라이트 대상 턴인지 판별"""
     if right_text and right_text.lower() in turn.get("line", "").lower():
         return True
-    # right_text가 없거나 못 찾으면 마지막 턴 하이라이트
-    if not right_text and idx == total - 1:
+    # 마지막 턴은 항상 하이라이트 (fallback)
+    if idx == total - 1:
         return True
     return False
 
@@ -83,7 +83,6 @@ def render_dialogue_card(dialogue: list[dict], lang: str, date_str: str,
     draw.rectangle([PAD, sep_y, CARD_W - PAD, sep_y + 2], fill=APPLE_BLUE)
 
     # ── 대화 턴 렌더링 ────────────────────────────────────────────
-    turn_y     = sep_y + 48
     total      = len(dialogue)
     line_gap   = 10   # 같은 턴 내 텍스트 간격
     turn_gap   = 36   # 턴 사이 간격
@@ -93,6 +92,27 @@ def render_dialogue_card(dialogue: list[dict], lang: str, date_str: str,
     pron_size    = sizes["phonetic"]
     ko_size      = sizes["korean"]
 
+    # ── 1-pass: 전체 높이 계산 (수직 중앙 정렬) ─────────────────
+    total_h = 0
+    for idx, turn in enumerate(dialogue):
+        line     = turn.get("line", "")
+        phonetic = turn.get("pronunciation") or turn.get("korean_phonetic") or ""
+        korean   = turn.get("korean", "")
+        lf = _line_font(lang, line_size)
+        total_h += _th(draw, line, lf) + line_gap
+        if phonetic:
+            total_h += _th(draw, phonetic, F.noto_kr(pron_size)) + line_gap
+        if korean:
+            total_h += _th(draw, korean, F.noto_kr(ko_size))
+        if idx < total - 1:
+            total_h += turn_gap
+
+    content_top = sep_y + 48
+    content_bot = CARD_H - 80  # 워터마크 위
+    avail = content_bot - content_top
+    turn_y = content_top + max(0, (avail - total_h) // 3)
+
+    # ── 2-pass: 실제 렌더링 ─────────────────────────────────────
     for idx, turn in enumerate(dialogue):
         speaker    = turn.get("speaker", "")
         line       = turn.get("line", "")
