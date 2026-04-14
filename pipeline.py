@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from config import SLOT_LANG_MAP, LANG_CONFIG, get_today_topic
+from renderer.design_themes import get_weekly_theme
 from generator import claude_gen
 from renderer import card as card_renderer
 from renderer import fonts as F
@@ -51,6 +52,7 @@ class GenerationResult:
     recap_card_urls: List[str] = field(default_factory=list)
     vocab_card_urls: List[str] = field(default_factory=list)
     step_times: Dict[str, float] = field(default_factory=dict)
+    theme: dict = None
 
 
 # ── 스텝별 내부 함수 ──────────────────────────────────────────────────────────
@@ -98,18 +100,18 @@ def _step3_render(result: GenerationResult, track_times: bool) -> None:
 
     result.hook_png = card_renderer.render_hook_card(
         result.hook_data, result.lang, result.today,
-        slot=result.slot, bg_path=bg_path)
+        slot=result.slot, bg_path=bg_path, theme=result.theme)
     result.wr_png = card_renderer.render_wrong_right_card(
         result.hook_data, result.lang, result.today,
-        slot=result.slot, bg_path=bg_path)
+        slot=result.slot, bg_path=bg_path, theme=result.theme)
     result.cta_png = card_renderer.render_cta_card(
         result.hook_data, result.lang, result.today,
-        slot=result.slot, bg_path=bg_path)
+        slot=result.slot, bg_path=bg_path, theme=result.theme)
 
     vocab_list = result.hook_data.get("vocab", [])
     if vocab_list:
         result.vocab_pngs = vocab_renderer.render_vocab_cards(
-            vocab_list, result.lang, result.today, slot=result.slot)
+            vocab_list, result.lang, result.today, slot=result.slot, theme=result.theme)
     else:
         result.vocab_pngs = []
 
@@ -118,7 +120,7 @@ def _step3_render(result: GenerationResult, track_times: bool) -> None:
     if dialogue_list:
         result.dialogue_png = dialogue_renderer.render_dialogue_card(
             dialogue_list, result.lang, result.today,
-            slot=result.slot, right_text=result.hook_data.get("right", ""))
+            slot=result.slot, right_text=result.hook_data.get("right", ""), theme=result.theme)
 
     if track_times:
         result.step_times["step3_render"] = time.time() - t0
@@ -261,6 +263,8 @@ def run_generation(
         lang=lang,
         hook_data={},
     )
+    result.theme = get_weekly_theme()
+    print(f"  🎨 이번 주 테마: {result.theme['name']}")
 
     _step1_fonts(result, track_times)
     _step2_generate(result, output_dir, track_times)   # RuntimeError 가능

@@ -212,6 +212,7 @@ def run_job(req: JobRequest, creds=Security(_verify)):
             "dialogue_card_url": None,
             "step_times": result.step_times,
             "dry_run": True,
+            "theme": result.theme.get("name", "Unknown") if result.theme else None,
         }
 
     print(f"\n✅ Worker 완료  ⏱ 총 {time.time() - t_job:.0f}s")
@@ -227,6 +228,7 @@ def run_job(req: JobRequest, creds=Security(_verify)):
         "dialogue_card_url": result.dialogue_card_url,
         "step_times": result.step_times,
         "dry_run": False,
+        "theme": result.theme.get("name", "Unknown") if result.theme else None,
     }
 
 
