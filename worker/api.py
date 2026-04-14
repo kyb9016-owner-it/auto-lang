@@ -209,6 +209,7 @@ def run_job(req: JobRequest, creds=Security(_verify)):
             "hook_data": result.hook_data,
             "hook_reel_url": None,
             "recap_card_urls": [],
+            "dialogue_card_url": None,
             "step_times": result.step_times,
             "dry_run": True,
         }
@@ -223,6 +224,7 @@ def run_job(req: JobRequest, creds=Security(_verify)):
         "hook_reel_url": result.hook_reel_url,
         "recap_card_urls": result.recap_card_urls,
         "vocab_card_urls": result.vocab_card_urls,
+        "dialogue_card_url": result.dialogue_card_url,
         "step_times": result.step_times,
         "dry_run": False,
     }

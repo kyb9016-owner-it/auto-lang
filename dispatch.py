@@ -114,10 +114,11 @@ def dispatch(slot: str | None, dry_run: bool = False,
             continue
 
         last_data = data
-        hook_data       = data.get("hook_data", {})
-        hook_reel_url   = data.get("hook_reel_url")
-        recap_card_urls = data.get("recap_card_urls", [])
-        vocab_card_urls = data.get("vocab_card_urls", [])
+        hook_data          = data.get("hook_data", {})
+        hook_reel_url      = data.get("hook_reel_url")
+        recap_card_urls    = data.get("recap_card_urls", [])
+        vocab_card_urls    = data.get("vocab_card_urls", [])
+        dialogue_card_url  = data.get("dialogue_card_url")
 
         wrong = hook_data.get("wrong", "")
         right = hook_data.get("right", "")
@@ -150,15 +151,18 @@ def dispatch(slot: str | None, dry_run: bool = False,
                 notify.send(f"❌ <b>{flag} HOOK 릴스 포스팅 실패</b>\n<code>{e}</code>")
                 print(f"  ✗ {flag} 릴스 포스팅 실패: {e}")
 
-        # ── 단어 캐러셀 ──────────────────────────────────────────────
-        if vocab_card_urls:
+        # ── 단어+대화 캐러셀 ─────────────────────────────────────────
+        if vocab_card_urls or dialogue_card_url:
             try:
                 time.sleep(5)
-                instagram.post_vocab_carousel(vocab_card_urls, lang, hook_data)
-                notify.send(f"📖 <b>{flag} 단어 캐러셀 업로드 완료</b> ✅ ({len(vocab_card_urls)}장)")
+                carousel_urls = list(vocab_card_urls)  # copy
+                if dialogue_card_url:
+                    carousel_urls.insert(0, dialogue_card_url)
+                instagram.post_vocab_carousel(carousel_urls, lang, hook_data)
+                notify.send(f"📖 <b>{flag} 단어+대화 캐러셀 업로드 완료</b> ✅ ({len(carousel_urls)}장)")
             except Exception as e:
-                notify.send(f"⚠️ <b>{flag} 단어 캐러셀 실패</b> (건너뜀)\n<code>{e}</code>")
-                print(f"  ⚠ {flag} 단어 캐러셀 실패: {e}")
+                notify.send(f"⚠️ <b>{flag} 단어+대화 캐러셀 실패</b> (건너뜀)\n<code>{e}</code>")
+                print(f"  ⚠ {flag} 단어+대화 캐러셀 실패: {e}")
 
         if len(langs_to_run) > 1:
             time.sleep(30)   # Instagram API rate limit 여유
