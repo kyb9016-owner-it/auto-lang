@@ -23,6 +23,7 @@ from renderer import fonts as F
 from renderer import reel as reel_renderer
 from renderer import tts_gen
 from renderer import vocab_card as vocab_renderer
+from renderer import dialogue_card as dialogue_renderer
 from fetcher.unsplash import fetch_city_bg
 from uploader import cloudinary_up
 
@@ -45,6 +46,8 @@ class GenerationResult:
     recap_meta: List[Tuple[str, str]] = field(default_factory=list)
     hook_reel_url: Optional[str] = None
     vocab_pngs: List[str] = field(default_factory=list)
+    dialogue_png: str = ""
+    dialogue_card_url: Optional[str] = None
     recap_card_urls: List[str] = field(default_factory=list)
     vocab_card_urls: List[str] = field(default_factory=list)
     step_times: Dict[str, float] = field(default_factory=dict)
@@ -109,6 +112,13 @@ def _step3_render(result: GenerationResult, track_times: bool) -> None:
             vocab_list, result.lang, result.today, slot=result.slot)
     else:
         result.vocab_pngs = []
+
+    # 대화 카드 렌더링
+    dialogue_list = result.hook_data.get("dialogue", [])
+    if dialogue_list:
+        result.dialogue_png = dialogue_renderer.render_dialogue_card(
+            dialogue_list, result.lang, result.today,
+            slot=result.slot, right_text=result.hook_data.get("right", ""))
 
     if track_times:
         result.step_times["step3_render"] = time.time() - t0
@@ -199,6 +209,15 @@ def _step7_upload(result: GenerationResult, output_dir: str, track_times: bool) 
         except Exception as e:
             print(f"  ⚠ vocab {i+1} 업로드 실패 (건너뜀): {e}")
     result.vocab_card_urls = vocab_card_urls
+
+    # 대화 카드 업로드
+    if result.dialogue_png:
+        try:
+            result.dialogue_card_url = cloudinary_up.upload(
+                result.dialogue_png, result.lang, "dialogue",
+                suffix="conv", date_str=result.today)
+        except Exception as e:
+            print(f"  ⚠ 대화 카드 업로드 실패 (건너뜀): {e}")
 
     if track_times:
         result.step_times["step7_upload"] = time.time() - t0
