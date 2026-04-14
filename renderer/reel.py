@@ -274,9 +274,11 @@ def render(image_paths: dict, vocab_paths: dict,
 def render_hook_reel(hook_png: str, wrongright_png: str, cta_png: str,
                      tts_path: Optional[str],
                      lang: str, date_str: str,
-                     slot: str = "daily") -> str:
+                     slot: str = "daily",
+                     dialogue_png: Optional[str] = None,
+                     vocab_pngs: Optional[list[str]] = None) -> str:
     """
-    HOOK 릴스: [HOOK 2초] → [WRONG→RIGHT (TTS 길이+1초) + TTS] → [CTA 3초]
+    HOOK 릴스: [HOOK 3초] → [WRONG→RIGHT (TTS+1.5초)] → [대화 7초] → [단어 각4초] → [CTA 3초]
     릴스 총 길이는 TTS에 따라 유동적 (13~20초).
     Returns: output/hook_{lang}_{slot}_{date_str}.mp4
     """
@@ -284,11 +286,11 @@ def render_hook_reel(hook_png: str, wrongright_png: str, cta_png: str,
 
     segments = []
 
-    # ── HOOK 카드 (2초, 무음) ─────────────────────────────────────────
+    # ── HOOK 카드 (3초, 무음) ─────────────────────────────────────────
     padded_hook = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_hook.png")
     _pad_to_9_16(hook_png, padded_hook)
     seg_hook = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_seg_hook.mp4")
-    _make_segment(padded_hook, None, 2.0, seg_hook)
+    _make_segment(padded_hook, None, 3.0, seg_hook)
     segments.append(seg_hook)
 
     # ── WRONG→RIGHT 카드 (TTS 길이 + 여유, 속도 조절 없음) ─────────
@@ -301,6 +303,24 @@ def render_hook_reel(hook_png: str, wrongright_png: str, cta_png: str,
     seg_wr = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_seg_wr.mp4")
     _make_segment(padded_wr, tts_path, wr_duration, seg_wr)
     segments.append(seg_wr)
+
+    # ── 대화 카드 (7초, 무음) ──────────────────────────────────────────
+    if dialogue_png and os.path.exists(dialogue_png):
+        padded_dlg = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_dlg.png")
+        _pad_to_9_16(dialogue_png, padded_dlg)
+        seg_dlg = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_seg_dlg.mp4")
+        _make_segment(padded_dlg, None, 7.0, seg_dlg)
+        segments.append(seg_dlg)
+
+    # ── 단어 카드 (각 4초, 무음) ───────────────────────────────────────
+    for vi, vpng in enumerate(vocab_pngs or []):
+        if not os.path.exists(vpng):
+            continue
+        padded_v = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_v{vi}.png")
+        _pad_to_9_16(vpng, padded_v)
+        seg_v = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_seg_v{vi}.mp4")
+        _make_segment(padded_v, None, 4.0, seg_v)
+        segments.append(seg_v)
 
     # ── CTA 카드 (3초, 무음) ──────────────────────────────────────────
     padded_cta = os.path.join(FRAMES_DIR, f"hook_{lang}_{date_str}_cta.png")
