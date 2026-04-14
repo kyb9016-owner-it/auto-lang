@@ -34,7 +34,8 @@ def _th(draw, text, font):
 
 
 def render_vocab_card(vocab_item: dict, idx: int, total: int,
-                      lang: str, date_str: str, slot: str) -> str:
+                      lang: str, date_str: str, slot: str,
+                      theme: dict = None) -> str:
     """
     단어 카드 1장 렌더링 (Apple 제품 페이지 스타일).
     vocab_item: {word, type, meaning, phonetic}
@@ -43,7 +44,13 @@ def render_vocab_card(vocab_item: dict, idx: int, total: int,
     """
     F.ensure_fonts()
 
-    img  = Image.new("RGB", (CARD_W, CARD_H), BG)
+    bg          = theme["bg"] if theme else (255, 255, 255)
+    text_main   = theme["text_main"] if theme else (0, 0, 0)
+    text_sub    = theme["text_sub"] if theme else (97, 93, 89)
+    accent      = theme["accent"] if theme else (0, 117, 222)
+    accent_light = theme.get("accent_light", (*accent, 20)) if theme else (242, 249, 255, 255)
+
+    img  = Image.new("RGB", (CARD_W, CARD_H), bg)
     draw = ImageDraw.Draw(img)
 
     word     = vocab_item.get("word", "")
@@ -54,7 +61,7 @@ def render_vocab_card(vocab_item: dict, idx: int, total: int,
     # ── 상단 레이블: "오늘의 단어 1/3" ──────────────────────────
     label_font = F.noto_kr(26)
     label_text = f"오늘의 단어  {idx + 1}/{total}"
-    draw.text((PAD, 100), label_text, font=label_font, fill=TEXT_SUB)
+    draw.text((PAD, 100), label_text, font=label_font, fill=text_sub)
 
     # ── 품사 배지 (Apple Blue 알약형) ────────────────────────────
     badge_font = F.noto_kr(28)
@@ -69,7 +76,7 @@ def render_vocab_card(vocab_item: dict, idx: int, total: int,
     badge_draw.rounded_rectangle(
         [PAD, badge_y, PAD + badge_w, badge_y + badge_h],
         radius=badge_h // 2,
-        fill=(*APPLE_BLUE, 20)
+        fill=accent_light
     )
     img = img.convert("RGBA")
     img = Image.alpha_composite(img, badge_layer)
@@ -78,7 +85,7 @@ def render_vocab_card(vocab_item: dict, idx: int, total: int,
 
     # 배지 텍스트
     draw.text((PAD + badge_pad_x, badge_y + badge_pad_y), wtype,
-              font=badge_font, fill=APPLE_BLUE)
+              font=badge_font, fill=accent)
 
     # ── 단어 — 크고 진하게 ───────────────────────────────────────
     word_font = _word_font(lang, 100)
@@ -87,7 +94,7 @@ def render_vocab_card(vocab_item: dict, idx: int, total: int,
         word_font = _word_font(lang, word_font.size - 4)
 
     word_y = badge_y + badge_h + 40
-    draw.text((PAD, word_y), word, font=word_font, fill=TEXT_MAIN)
+    draw.text((PAD, word_y), word, font=word_font, fill=text_main)
     bb = draw.textbbox((PAD, word_y), word, font=word_font)
     word_bottom = bb[3]
 
@@ -95,14 +102,14 @@ def render_vocab_card(vocab_item: dict, idx: int, total: int,
     pron_y = word_bottom + 16
     if phonetic:
         pron_font = F.noto_kr(34)
-        draw.text((PAD, pron_y), phonetic, font=pron_font, fill=TEXT_SUB)
+        draw.text((PAD, pron_y), phonetic, font=pron_font, fill=text_sub)
         bb = draw.textbbox((PAD, pron_y), phonetic, font=pron_font)
         pron_y = bb[3] + 24
     else:
         pron_y += 10
 
     # ── Apple Blue 구분선 ────────────────────────────────────────
-    draw.rectangle([PAD, pron_y, CARD_W - PAD, pron_y + 2], fill=APPLE_BLUE)
+    draw.rectangle([PAD, pron_y, CARD_W - PAD, pron_y + 2], fill=accent)
     pron_y += 28
 
     # ── 한국어 뜻 — 크게 ─────────────────────────────────────────
@@ -110,14 +117,14 @@ def render_vocab_card(vocab_item: dict, idx: int, total: int,
     while _tw(draw, meaning, ko_font) > USABLE_W and ko_font.size > 40:
         ko_font = F.noto_kr(ko_font.size - 4)
 
-    draw.text((PAD, pron_y), meaning, font=ko_font, fill=TEXT_MAIN)
+    draw.text((PAD, pron_y), meaning, font=ko_font, fill=text_main)
 
     # ── 하단 브랜드 ──────────────────────────────────────────────
     brand_font = F.outfit(28)
     brand = "@langcard.studio"
     bw = _tw(draw, brand, brand_font)
     draw.text(((CARD_W - bw) // 2, CARD_H - 50), brand,
-              font=brand_font, fill=TEXT_SUB)
+              font=brand_font, fill=text_sub)
 
     # ── 저장 ─────────────────────────────────────────────────────
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -128,11 +135,12 @@ def render_vocab_card(vocab_item: dict, idx: int, total: int,
 
 
 def render_vocab_cards(vocab_list: list, lang: str,
-                       date_str: str, slot: str) -> list[str]:
+                       date_str: str, slot: str,
+                       theme: dict = None) -> list[str]:
     """vocab_list (최대 3개) → 카드 PNG 경로 리스트 반환"""
     items = vocab_list[:3]
     total = len(items)
     paths = []
     for i, item in enumerate(items):
-        paths.append(render_vocab_card(item, i, total, lang, date_str, slot))
+        paths.append(render_vocab_card(item, i, total, lang, date_str, slot, theme=theme))
     return paths

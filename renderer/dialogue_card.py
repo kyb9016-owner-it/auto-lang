@@ -58,7 +58,8 @@ def _is_highlighted(turn: dict, right_text: str, idx: int, total: int) -> bool:
 
 
 def render_dialogue_card(dialogue: list[dict], lang: str, date_str: str,
-                         slot: str, right_text: str = "") -> str:
+                         slot: str, right_text: str = "",
+                         theme: dict = None) -> str:
     """
     대화 카드 1장 렌더링 (Apple 라이트 스타일).
     dialogue: [{"speaker": "A/B", "line": "...", "pronunciation": "...",
@@ -67,7 +68,12 @@ def render_dialogue_card(dialogue: list[dict], lang: str, date_str: str,
     """
     F.ensure_fonts()
 
-    img  = Image.new("RGB", (CARD_W, CARD_H), BG)
+    bg        = theme["bg"] if theme else (255, 255, 255)
+    text_main = theme["text_main"] if theme else (0, 0, 0)
+    text_sub  = theme["text_sub"] if theme else (97, 93, 89)
+    accent    = theme["accent"] if theme else (0, 117, 222)
+
+    img  = Image.new("RGB", (CARD_W, CARD_H), bg)
     draw = ImageDraw.Draw(img)
 
     n_turns = max(2, min(4, len(dialogue)))
@@ -75,12 +81,12 @@ def render_dialogue_card(dialogue: list[dict], lang: str, date_str: str,
 
     # ── 상단 레이블: "실전 대화" ──────────────────────────────────
     label_font = F.noto_kr(28)
-    draw.text((PAD, 100), "실전 대화", font=label_font, fill=TEXT_SUB)
+    draw.text((PAD, 100), "실전 대화", font=label_font, fill=text_sub)
 
     # ── Apple Blue 구분선 ─────────────────────────────────────────
     label_bb   = draw.textbbox((PAD, 100), "실전 대화", font=label_font)
     sep_y      = label_bb[3] + 24
-    draw.rectangle([PAD, sep_y, CARD_W - PAD, sep_y + 2], fill=APPLE_BLUE)
+    draw.rectangle([PAD, sep_y, CARD_W - PAD, sep_y + 2], fill=accent)
 
     # ── 대화 턴 렌더링 ────────────────────────────────────────────
     total      = len(dialogue)
@@ -120,7 +126,7 @@ def render_dialogue_card(dialogue: list[dict], lang: str, date_str: str,
         korean     = turn.get("korean", "")
         highlighted = _is_highlighted(turn, right_text, idx, total)
 
-        speaker_color = APPLE_BLUE if highlighted else TEXT_SUB
+        speaker_color = accent if highlighted else text_sub
 
         # 왼쪽 파란 바 (하이라이트 턴만)
         if highlighted:
@@ -145,7 +151,7 @@ def render_dialogue_card(dialogue: list[dict], lang: str, date_str: str,
             lf = _line_font(lang, lf.size - 2)
 
         draw.text((content_x, content_y), line,
-                  font=lf, fill=TEXT_MAIN)
+                  font=lf, fill=text_main)
         bb = draw.textbbox((content_x, content_y), line, font=lf)
         content_y = bb[3] + line_gap
 
@@ -153,7 +159,7 @@ def render_dialogue_card(dialogue: list[dict], lang: str, date_str: str,
         if phonetic:
             pf = F.noto_kr(pron_size)
             draw.text((content_x, content_y), phonetic,
-                      font=pf, fill=TEXT_SUB)
+                      font=pf, fill=text_sub)
             bb = draw.textbbox((content_x, content_y), phonetic, font=pf)
             content_y = bb[3] + line_gap
 
@@ -163,7 +169,7 @@ def render_dialogue_card(dialogue: list[dict], lang: str, date_str: str,
             while _tw(draw, korean, kf) > max_content_w and kf.size > 18:
                 kf = F.noto_kr(kf.size - 2)
             draw.text((content_x, content_y), korean,
-                      font=kf, fill=TEXT_SUB)
+                      font=kf, fill=text_sub)
             bb = draw.textbbox((content_x, content_y), korean, font=kf)
             content_y = bb[3]
 
@@ -172,7 +178,7 @@ def render_dialogue_card(dialogue: list[dict], lang: str, date_str: str,
             bar_end_y = content_y + 4
             draw.rectangle(
                 [PAD, bar_start_y, PAD + BLUE_BAR_W, bar_end_y],
-                fill=APPLE_BLUE
+                fill=accent
             )
 
         turn_y = content_y + turn_gap
@@ -182,7 +188,7 @@ def render_dialogue_card(dialogue: list[dict], lang: str, date_str: str,
     brand      = "@langcard.studio"
     bw         = _tw(draw, brand, brand_font)
     draw.text(((CARD_W - bw) // 2, CARD_H - 60), brand,
-              font=brand_font, fill=TEXT_SUB)
+              font=brand_font, fill=text_sub)
 
     # ── 저장 ─────────────────────────────────────────────────────
     os.makedirs(OUTPUT_DIR, exist_ok=True)
