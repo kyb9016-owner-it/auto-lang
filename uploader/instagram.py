@@ -241,7 +241,7 @@ def _publish(container_id: str) -> str:
     return result["id"]
 
 
-def _wait_ready(container_id: str, timeout: int = 120) -> None:
+def _wait_ready(container_id: str, timeout: int = 180) -> None:
     """컨테이너가 FINISHED 상태가 될 때까지 대기"""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -275,7 +275,7 @@ def post_short_reel(video_url: str, lang: str,
         "share_to_feed": "true",
     })
     cid = result["id"]
-    _wait_ready(cid, timeout=300)
+    _wait_ready(cid, timeout=600)
     print(f"  → {lc['name_ko']} 숏릴스 게시 중...")
     media_id = _publish(cid)
     print(f"  ✓ {lc['name_ko']} 숏릴스 완료! media_id: {media_id}")
@@ -298,7 +298,7 @@ def post_hook_reel(video_url: str, lang: str, data: dict) -> str:
         "share_to_feed": "true",
     })
     cid = result["id"]
-    _wait_ready(cid, timeout=300)
+    _wait_ready(cid, timeout=600)
     print(f"  → {lc['name_ko']} HOOK 릴스 게시 중...")
     media_id = _publish(cid)
     print(f"  ✓ {lc['name_ko']} HOOK 릴스 완료! media_id: {media_id}")
@@ -393,7 +393,7 @@ def post_recap_reel(video_url: str, topic: dict,
         "share_to_feed": "true",
     })
     cid = result["id"]
-    _wait_ready(cid, timeout=300)
+    _wait_ready(cid, timeout=600)
     print("  → 종합 릴스 게시 중...")
     media_id = _publish(cid)
     print(f"  ✓ 종합 릴스 완료! media_id: {media_id}")
@@ -508,7 +508,7 @@ def post_reel(video_url: str, slot: str, all_data: dict[str, dict]) -> str:
         "share_to_feed": "true",
     })
     cid = result["id"]
-    _wait_ready(cid, timeout=300)
+    _wait_ready(cid, timeout=600)
     print("  → 릴스 게시 중...")
     media_id = _publish(cid)
     print(f"  ✓ 릴스 완료! media_id: {media_id}")

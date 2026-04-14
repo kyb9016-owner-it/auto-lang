@@ -161,7 +161,7 @@ def dispatch(slot: str | None, dry_run: bool = False,
                 print(f"  ⚠ {flag} 단어 캐러셀 실패: {e}")
 
         if len(langs_to_run) > 1:
-            time.sleep(5)   # Instagram API rate limit 여유
+            time.sleep(30)   # Instagram API rate limit 여유
 
     if dry_run:
         elapsed = int(time.time() - t_start)
