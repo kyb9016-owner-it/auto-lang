@@ -150,6 +150,7 @@ Rules:
 - HOOK must stop scrolling in 1 second — provocative, short, in Korean
 - TTS parts must be under 15 characters each (for timing control)
 - For vocab: pick 3 key words from the wrong or right expression; focus on commonly confused or useful words; type must be in Korean: 동사, 형용사, 부사, 명사, 전치사, 조동사
+- dialogue: Generate a 2~4 turn realistic conversation where the RIGHT expression is used naturally. The RIGHT expression MUST appear in one of the turns (preferably the last). Each turn needs: speaker (A or B), line (in {lc['name']}), pronunciation (romanization/pinyin for zh/ja, null for en), korean_phonetic (한글 발음), korean (한국어 번역).
 - MUST be different from these recently used WRONG expressions:
 {history_str}
 
@@ -180,6 +181,10 @@ Return ONLY this JSON:
     {{"word": "key word from wrong or right expression", "type": "품사 (동사/형용사/부사/명사/전치사)", "meaning": "한국어 뜻", "phonetic": "한글 발음 (영어만, 중국어/일본어는 null)"}},
     {{"word": "second word", "type": "품사", "meaning": "한국어 뜻", "phonetic": "한글 발음"}},
     {{"word": "third word", "type": "품사", "meaning": "한국어 뜻", "phonetic": "한글 발음"}}
+  ],
+  "dialogue": [
+    {{"speaker": "A", "line": "대화 원문 (in {lc['name']})", "pronunciation": "로마자/병음 (영어는 null)", "korean_phonetic": "한글 발음", "korean": "한국어 번역"}},
+    {{"speaker": "B", "line": "대화 원문 (in {lc['name']})", "pronunciation": "로마자/병음 (영어는 null)", "korean_phonetic": "한글 발음", "korean": "한국어 번역"}}
   ]
 }}"""
 
