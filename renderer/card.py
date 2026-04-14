@@ -1359,11 +1359,11 @@ def render_hook_card(hook_data: dict, lang: str, date_str: str, slot: str,
     """
     F.ensure_fonts()
 
-    BG         = (245, 245, 247)
-    TEXT_MAIN  = (29, 29, 31)
-    TEXT_SUB   = (134, 134, 139)
-    APPLE_BLUE = (0, 113, 227)
-    MUTED      = (142, 142, 147)
+    BG         = (255, 255, 255)
+    TEXT_MAIN  = (0, 0, 0)
+    TEXT_SUB   = (97, 93, 89)
+    APPLE_BLUE = (0, 117, 222)
+    MUTED      = (163, 158, 152)
 
     hook_text  = _strip_emoji(hook_data.get("hook", ""))
     wrong_text = hook_data.get("wrong", "")
@@ -1449,12 +1449,12 @@ def render_wrong_right_card(data: dict, lang: str, date_str: str, slot: str,
     """
     F.ensure_fonts()
 
-    # ── Apple 라이트 팔레트 ────────────────────────────────────────
-    BG         = (245, 245, 247)
-    TEXT_MAIN  = (29, 29, 31)
-    TEXT_SUB   = (134, 134, 139)
-    APPLE_BLUE = (0, 113, 227)
-    MUTED      = (142, 142, 147)
+    # ── Notion 팔레트 ──────────────────────────────────────────────
+    BG         = (255, 255, 255)
+    TEXT_MAIN  = (0, 0, 0)
+    TEXT_SUB   = (97, 93, 89)
+    APPLE_BLUE = (0, 117, 222)
+    MUTED      = (163, 158, 152)
 
     is_cjk = lang in ("zh", "ja")
     font_fn = _main_font_fn(lang)
@@ -1552,7 +1552,7 @@ def render_wrong_right_card(data: dict, lang: str, date_str: str, slot: str,
         box_draw  = ImageDraw.Draw(box_layer)
         box_draw.rounded_rectangle(
             [PAD, cur_y, CARD_W - PAD, cur_y + tip_h],
-            radius=16, fill=(*APPLE_BLUE, 12))
+            radius=16, fill=(242, 249, 255, 255))
         img = img.convert("RGBA")
         img = Image.alpha_composite(img, box_layer)
         img = img.convert("RGB")
@@ -1601,10 +1601,10 @@ def render_cta_card(hook_data: dict, lang: str, date_str: str, slot: str,
     """
     F.ensure_fonts()
 
-    BG         = (245, 245, 247)
-    TEXT_MAIN  = (29, 29, 31)
-    TEXT_SUB   = (134, 134, 139)
-    APPLE_BLUE = (0, 113, 227)
+    BG         = (255, 255, 255)
+    TEXT_MAIN  = (0, 0, 0)
+    TEXT_SUB   = (97, 93, 89)
+    APPLE_BLUE = (0, 117, 222)
 
     cta_text   = _strip_emoji(hook_data.get("cta", "이거 몰랐으면 저장해두세요"))
     right_text = hook_data.get("right", "")

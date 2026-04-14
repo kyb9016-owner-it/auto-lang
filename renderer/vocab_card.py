@@ -7,14 +7,20 @@ from renderer.themes import CARD_W, CARD_H, PAD
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
 
-# Apple 색상
-BG         = (245, 245, 247)   # #F5F5F7
-TEXT_MAIN  = (29, 29, 31)      # #1D1D1F
-TEXT_SUB   = (134, 134, 139)   # #86868B
-APPLE_BLUE = (0, 113, 227)     # #0071E3
-BLUE_LIGHT = (0, 113, 227, 20) # 연한 파랑 배지 배경
+# Notion 색상
+BG         = (255, 255, 255)      # Pure white
+TEXT_MAIN  = (0, 0, 0)            # Near-black
+TEXT_SUB   = (97, 93, 89)         # Warm gray 500
+APPLE_BLUE = (0, 117, 222)        # Notion Blue
+BLUE_LIGHT = (242, 249, 255, 255) # Badge bg
 
 USABLE_W = CARD_W - PAD * 2
+
+
+def _word_font(lang, size):
+    if lang == "ja": return F.noto_jp(size)
+    if lang == "zh": return F.noto_sc(size)
+    return F.outfit(size)
 
 
 def _tw(draw, text, font):
@@ -75,10 +81,10 @@ def render_vocab_card(vocab_item: dict, idx: int, total: int,
               font=badge_font, fill=APPLE_BLUE)
 
     # ── 단어 — 크고 진하게 ───────────────────────────────────────
-    word_font = F.outfit(100)
+    word_font = _word_font(lang, 100)
     # 너무 길면 축소
     while _tw(draw, word, word_font) > USABLE_W and word_font.size > 48:
-        word_font = F.outfit(word_font.size - 4)
+        word_font = _word_font(lang, word_font.size - 4)
 
     word_y = badge_y + badge_h + 40
     draw.text((PAD, word_y), word, font=word_font, fill=TEXT_MAIN)

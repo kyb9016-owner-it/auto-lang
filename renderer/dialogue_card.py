@@ -7,11 +7,11 @@ from renderer.themes import CARD_W, CARD_H, PAD
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
 
-# Apple 색상
-BG         = (245, 245, 247)   # #F5F5F7
-TEXT_MAIN  = (29, 29, 31)      # #1D1D1F
-TEXT_SUB   = (134, 134, 139)   # #86868B
-APPLE_BLUE = (0, 113, 227)     # #0071E3
+# Notion 색상
+BG         = (255, 255, 255)   # Pure white
+TEXT_MAIN  = (0, 0, 0)         # Near-black
+TEXT_SUB   = (97, 93, 89)      # Warm gray 500
+APPLE_BLUE = (0, 117, 222)     # Notion Blue
 
 USABLE_W = CARD_W - PAD * 2
 
