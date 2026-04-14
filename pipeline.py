@@ -135,11 +135,13 @@ def _step4_tts(result: GenerationResult, track_times: bool) -> None:
 
 
 def _step5_reel(result: GenerationResult, track_times: bool) -> None:
-    print(f"\n[5/7] HOOK 릴스 합성 (15초)")
+    print(f"\n[5/7] 통합 릴스 합성")
     t0 = time.time()
     result.hook_reel_path = reel_renderer.render_hook_reel(
         result.hook_png, result.wr_png, result.cta_png,
-        result.hook_tts, result.lang, result.today, slot=result.slot)
+        result.hook_tts, result.lang, result.today, slot=result.slot,
+        dialogue_png=result.dialogue_png,
+        vocab_pngs=result.vocab_pngs)
     if track_times:
         result.step_times["step5_reels"] = time.time() - t0
 
