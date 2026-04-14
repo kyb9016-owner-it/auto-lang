@@ -1351,7 +1351,7 @@ def render_collection_cta(date_str: str) -> str:
 # ── HOOK / WRONG→RIGHT / CTA 카드 렌더러 ─────────────────────────────────────
 
 def render_hook_card(hook_data: dict, lang: str, date_str: str, slot: str,
-                     bg_path: str = None) -> str:
+                     bg_path: str = None, theme: dict = None) -> str:
     """
     HOOK 카드: Apple 라이트 스타일.
     hook_data: {hook, wrong, right, right_ko, wrong_ko_phonetic, right_ko_phonetic}
@@ -1359,10 +1359,15 @@ def render_hook_card(hook_data: dict, lang: str, date_str: str, slot: str,
     """
     F.ensure_fonts()
 
-    BG         = (255, 255, 255)
-    TEXT_MAIN  = (0, 0, 0)
-    TEXT_SUB   = (97, 93, 89)
-    APPLE_BLUE = (0, 117, 222)
+    _bg        = theme["bg"]        if theme else (255, 255, 255)
+    _text_main = theme["text_main"] if theme else (0, 0, 0)
+    _text_sub  = theme["text_sub"]  if theme else (97, 93, 89)
+    _accent    = theme["accent"]    if theme else (0, 117, 222)
+
+    BG         = _bg
+    TEXT_MAIN  = _text_main
+    TEXT_SUB   = _text_sub
+    APPLE_BLUE = _accent
     MUTED      = (163, 158, 152)
 
     hook_text  = _strip_emoji(hook_data.get("hook", ""))
@@ -1440,7 +1445,7 @@ def render_hook_card(hook_data: dict, lang: str, date_str: str, slot: str,
 
 
 def render_wrong_right_card(data: dict, lang: str, date_str: str, slot: str,
-                             bg_path: str = None) -> str:
+                             bg_path: str = None, theme: dict = None) -> str:
     """
     WRONG→RIGHT 카드. Apple 라이트 스타일.
     data: {wrong, right, right_ko, wrong_ko_phonetic, right_ko_phonetic,
@@ -1449,12 +1454,12 @@ def render_wrong_right_card(data: dict, lang: str, date_str: str, slot: str,
     """
     F.ensure_fonts()
 
-    # ── Notion 팔레트 ──────────────────────────────────────────────
-    BG         = (255, 255, 255)
-    TEXT_MAIN  = (0, 0, 0)
-    TEXT_SUB   = (97, 93, 89)
-    APPLE_BLUE = (0, 117, 222)
-    MUTED      = (163, 158, 152)
+    # ── 팔레트 (테마 또는 기본값) ───────────────────────────────────
+    BG         = theme["bg"]        if theme else (255, 255, 255)
+    TEXT_MAIN  = theme["text_main"] if theme else (0, 0, 0)
+    TEXT_SUB   = theme["text_sub"]  if theme else (97, 93, 89)
+    APPLE_BLUE = theme["accent"]    if theme else (0, 117, 222)
+    MUTED      = theme.get("wrong_color", (163, 158, 152)) if theme else (163, 158, 152)
 
     is_cjk = lang in ("zh", "ja")
     font_fn = _main_font_fn(lang)
@@ -1552,7 +1557,7 @@ def render_wrong_right_card(data: dict, lang: str, date_str: str, slot: str,
         box_draw  = ImageDraw.Draw(box_layer)
         box_draw.rounded_rectangle(
             [PAD, cur_y, CARD_W - PAD, cur_y + tip_h],
-            radius=16, fill=(242, 249, 255, 255))
+            radius=16, fill=(*theme["accent"], 15) if theme else (242, 249, 255, 255))
         img = img.convert("RGBA")
         img = Image.alpha_composite(img, box_layer)
         img = img.convert("RGB")
@@ -1593,7 +1598,7 @@ def _strip_emoji(text: str) -> str:
 
 
 def render_cta_card(hook_data: dict, lang: str, date_str: str, slot: str,
-                    bg_path: str = None) -> str:
+                    bg_path: str = None, theme: dict = None) -> str:
     """
     CTA 카드: Apple 라이트 스타일.
     hook_data: {cta, right, right_ko, right_ko_phonetic}
@@ -1601,10 +1606,10 @@ def render_cta_card(hook_data: dict, lang: str, date_str: str, slot: str,
     """
     F.ensure_fonts()
 
-    BG         = (255, 255, 255)
-    TEXT_MAIN  = (0, 0, 0)
-    TEXT_SUB   = (97, 93, 89)
-    APPLE_BLUE = (0, 117, 222)
+    BG         = theme["bg"]        if theme else (255, 255, 255)
+    TEXT_MAIN  = theme["text_main"] if theme else (0, 0, 0)
+    TEXT_SUB   = theme["text_sub"]  if theme else (97, 93, 89)
+    APPLE_BLUE = theme["accent"]    if theme else (0, 117, 222)
 
     cta_text   = _strip_emoji(hook_data.get("cta", "이거 몰랐으면 저장해두세요"))
     right_text = hook_data.get("right", "")
