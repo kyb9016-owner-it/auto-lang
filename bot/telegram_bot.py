@@ -19,6 +19,9 @@ LangCard Studio — 텔레그램 봇 (main 서버용)
   /prefetch — 내일 표현 미리 생성
   /analyze [n]  — 최근 n개 포스팅 성과 분석 (기본 30)
   /schedule [morning|lunch|evening] [HH:MM]  — KST 기준 cron 스케줄 변경
+  /theme    — 현재 테마 확인 + 전체 목록
+  /theme_set [이름]  — 테마 수동 변경 (없으면 자동 복귀)
+  /theme_preview [이름]  — 테마 미리보기 카드 전송
 
 사용법:
   python3 bot/telegram_bot.py
@@ -796,6 +799,137 @@ async def cmd_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @owner_only
+async def cmd_theme(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """현재 테마 확인 + 전체 목록"""
+    from renderer.design_themes import get_weekly_theme, list_themes, THEME_ROTATION
+
+    current = get_weekly_theme()
+    themes = list_themes()
+
+    # Current theme info
+    msg = f"🎨 <b>이번 주 테마: {current['name']}</b>\n"
+    if current.get("overridden"):
+        msg += "⚠️ 수동 오버라이드 적용 중\n"
+    msg += f"모드: {'🌙 다크' if current.get('mode') == 'dark' else '☀️ 라이트'}\n\n"
+
+    # Full list with numbers
+    msg += "<b>전체 테마 (25개):</b>\n"
+    for i, key in enumerate(THEME_ROTATION):
+        t = next((x for x in themes if x["key"] == key), None)
+        if not t:
+            continue
+        icon = "🌙" if t["mode"] == "dark" else "☀️"
+        marker = " ← 이번 주" if key == current["key"] else ""
+        msg += f"  {i+1}. {icon} {t['name']}{marker}\n"
+
+    msg += f"\n<code>/theme_set [이름]</code> — 수동 변경\n"
+    msg += f"<code>/theme_preview [이름]</code> — 미리보기"
+
+    await update.message.reply_text(msg, parse_mode="HTML")
+
+
+@owner_only
+async def cmd_theme_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """테마 수동 설정 (주간 자동 로테이션 오버라이드)"""
+    from renderer.design_themes import DESIGN_THEMES
+
+    args = context.args
+    if not args:
+        # Clear override
+        override_path = ROOT / "theme_override.txt"
+        if override_path.exists():
+            override_path.unlink()
+            await update.message.reply_text("🔄 테마 오버라이드 해제 — 주간 자동 로테이션으로 복귀")
+        else:
+            await update.message.reply_text("ℹ️ 현재 오버라이드 없음. 사용법: /theme_set linear")
+        return
+
+    key = args[0].lower().replace(".", "_").replace("-", "_")
+    if key not in DESIGN_THEMES:
+        # Try fuzzy match by name
+        for k, v in DESIGN_THEMES.items():
+            if v["name"].lower() == key or k.startswith(key):
+                key = k
+                break
+        else:
+            await update.message.reply_text(f"❌ '{args[0]}' 테마를 찾을 수 없습니다.\n/theme 로 전체 목록 확인")
+            return
+
+    override_path = ROOT / "theme_override.txt"
+    override_path.write_text(key)
+    theme = DESIGN_THEMES[key]
+    mode_icon = "🌙" if theme.get("mode") == "dark" else "☀️"
+    await update.message.reply_text(
+        f"✅ 테마 변경: {mode_icon} <b>{theme['name']}</b>\n"
+        f"다음 포스팅부터 적용됩니다.\n"
+        f"해제: <code>/theme_set</code> (인자 없이)",
+        parse_mode="HTML"
+    )
+
+
+@owner_only
+async def cmd_theme_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """테마 미리보기 — 샘플 WR 카드 생성 후 전송"""
+    from renderer.design_themes import DESIGN_THEMES, get_theme_by_key
+    from renderer import card as card_renderer
+    from renderer import fonts as F
+
+    args = context.args
+    if not args:
+        await update.message.reply_text("사용법: /theme_preview linear\n/theme 로 전체 목록 확인")
+        return
+
+    key = args[0].lower().replace(".", "_").replace("-", "_")
+    if key not in DESIGN_THEMES:
+        for k, v in DESIGN_THEMES.items():
+            if v["name"].lower() == key or k.startswith(key):
+                key = k
+                break
+        else:
+            await update.message.reply_text(f"❌ '{args[0]}' 테마를 찾을 수 없습니다.")
+            return
+
+    await update.message.reply_text(f"🎨 {DESIGN_THEMES[key]['name']} 미리보기 생성 중...")
+
+    theme = get_theme_by_key(key)
+
+    # Sample data for preview
+    sample_data = {
+        "hook": "이거 영어로 말하면 99%가 틀림",
+        "wrong": "I'm in trouble.",
+        "wrong_ko_phonetic": "아임 인 트러블",
+        "right": "I'm having trouble with something.",
+        "right_ko_phonetic": "아임 해빙 트러블 윈 썸씽",
+        "right_ko": "나는 어려움을 겪고 있다",
+        "pronunciation": None,
+        "explanation": "'I'm in trouble'은 법적 문제나 위험한 상황을 의미합니다. 일상에서 어려움이 있을 때는 'I'm having trouble with'을 쓰세요.",
+        "cta": "이거 몰랐으면 저장해두세요",
+        "vocab": [],
+    }
+
+    try:
+        F.ensure_fonts()
+        preview_path = card_renderer.render_wrong_right_card(
+            sample_data, "en", "preview", slot="morning",
+            bg_path=None, theme=theme)
+
+        with open(preview_path, "rb") as f:
+            mode_icon = "🌙" if theme.get("mode") == "dark" else "☀️"
+            await update.message.reply_photo(
+                photo=f,
+                caption=f"{mode_icon} <b>{theme['name']}</b> 테마 미리보기\n\n"
+                        f"적용: <code>/theme_set {key}</code>",
+                parse_mode="HTML"
+            )
+
+        # Clean up preview file
+        if os.path.exists(preview_path):
+            os.remove(preview_path)
+    except Exception as e:
+        await update.message.reply_text(f"❌ 미리보기 생성 실패: {e}")
+
+
+@owner_only
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📖 LangCard Studio 봇 명령어\n\n"
@@ -810,6 +944,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "── 분석 & 스케줄 ──\n"
         "/analyze [n] — 포스팅 성과 분석 📊\n"
         "/schedule [슬롯] [HH:MM] — cron 스케줄 변경 ⏰\n\n"
+        "── 테마 ──\n"
+        "/theme   — 현재 테마 확인 + 전체 목록 🎨\n"
+        "/theme_set [이름] — 테마 수동 변경 (없으면 자동 복귀) 🖌️\n"
+        "/theme_preview [이름] — 테마 미리보기 카드 전송 👁️\n\n"
         "── 관리 ──\n"
         "/status  — 서버 상태 🔍\n"
         "/log [n] — cron 로그 📋\n"
@@ -843,9 +981,12 @@ def main():
     app.add_handler(CommandHandler("topic",    cmd_topic))
     app.add_handler(CommandHandler("history",  cmd_history))
     app.add_handler(CommandHandler("prefetch", cmd_prefetch))
-    app.add_handler(CommandHandler("analyze",  cmd_analyze))
-    app.add_handler(CommandHandler("schedule", cmd_schedule))
-    app.add_handler(CommandHandler("help",     cmd_help))
+    app.add_handler(CommandHandler("analyze",       cmd_analyze))
+    app.add_handler(CommandHandler("schedule",      cmd_schedule))
+    app.add_handler(CommandHandler("theme",         cmd_theme))
+    app.add_handler(CommandHandler("theme_set",     cmd_theme_set))
+    app.add_handler(CommandHandler("theme_preview", cmd_theme_preview))
+    app.add_handler(CommandHandler("help",          cmd_help))
     app.add_handler(CommandHandler("start",    cmd_help))
 
     logger.info(f"봇 시작 (owner_id={TELEGRAM_OWNER_ID})")

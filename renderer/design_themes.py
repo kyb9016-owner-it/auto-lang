@@ -297,8 +297,23 @@ THEME_ROTATION = [
 
 
 def get_weekly_theme() -> dict:
-    """KST 기준 이번 주 테마 반환"""
+    """KST 기준 이번 주 테마 반환 (오버라이드 파일 우선)"""
+    import os
     from datetime import datetime, timezone, timedelta
+
+    # Check override file
+    override_path = os.path.join(os.path.dirname(__file__), "..", "theme_override.txt")
+    if os.path.exists(override_path):
+        try:
+            key = open(override_path).read().strip()
+            if key in DESIGN_THEMES:
+                theme = DESIGN_THEMES[key].copy()
+                theme["key"] = key
+                theme["overridden"] = True
+                return theme
+        except Exception:
+            pass
+
     kst = timezone(timedelta(hours=9))
     now = datetime.now(kst)
     week_num = now.isocalendar()[1]
