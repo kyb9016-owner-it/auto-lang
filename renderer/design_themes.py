@@ -285,14 +285,36 @@ DESIGN_THEMES = {
     },
 }
 
-# 주간 로테이션 순서 (밝은/어두운 교차로 변화감 극대화)
+# 주간 로테이션 — light 7개를 dark 18개 사이에 분산 배치해 변화감 확보.
+# 인접 테마의 accent 색감도 달라지도록 조정 (blue→cyan→navy 등 비슷한 계열 연속 회피).
+# ROTATION_START_WEEK (2026-W17) 주차에 index 0번 테마가 걸림.
+ROTATION_START_WEEK = 17
 THEME_ROTATION = [
-    "linear", "notion", "spotify", "pinterest",
-    "stripe", "airbnb", "supabase", "mintlify",
-    "raycast", "wise", "cursor", "apple",
-    "superhuman", "figma", "framer", "vercel",
-    "nvidia", "tesla", "coinbase", "uber",
-    "warp", "revolut", "spacex", "x_ai", "cal",
+    "pinterest",   # 0 L red
+    "linear",      # 1 D blue-purple
+    "cursor",      # 2 D cyan
+    "stripe",      # 3 D navy
+    "airbnb",      # 4 L coral
+    "supabase",    # 5 D green
+    "superhuman",  # 6 D purple
+    "raycast",     # 7 D red
+    "apple",       # 8 L blue
+    "spotify",     # 9 D green
+    "coinbase",    # 10 D navy-blue
+    "wise",        # 11 L neon-green
+    "framer",      # 12 D blue
+    "warp",        # 13 D gold
+    "x_ai",        # 14 D white
+    "notion",      # 15 L blue
+    "figma",       # 16 D orange
+    "vercel",      # 17 D white
+    "nvidia",      # 18 D green
+    "mintlify",    # 19 L mint
+    "revolut",     # 20 D purple-blue
+    "uber",        # 21 D white
+    "spacex",      # 22 D blue
+    "cal",         # 23 L mono
+    "tesla",       # 24 D white
 ]
 
 
@@ -317,7 +339,7 @@ def get_weekly_theme() -> dict:
     kst = timezone(timedelta(hours=9))
     now = datetime.now(kst)
     week_num = now.isocalendar()[1]
-    idx = week_num % len(THEME_ROTATION)
+    idx = (week_num - ROTATION_START_WEEK) % len(THEME_ROTATION)
     key = THEME_ROTATION[idx]
     theme = DESIGN_THEMES[key].copy()
     theme["key"] = key

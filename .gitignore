@@ -18,3 +18,9 @@ output/*.mp4
 output/tts/
 output/reel_frames/
 tmp/
+
+# 도구 설정·작업트리
+.claude/
+
+# 생성된 프리뷰 HTML
+output/preview_*.html

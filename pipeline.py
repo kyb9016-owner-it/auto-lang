@@ -81,7 +81,7 @@ def _step2_generate(result: GenerationResult, output_dir: str, track_times: bool
 
     result.hook_data = hook_data
 
-    data_json_path = os.path.join(output_dir, f"data_{result.slot}_{result.today}.json")
+    data_json_path = os.path.join(output_dir, f"data_{result.slot}_{result.lang}_{result.today}.json")
     os.makedirs(output_dir, exist_ok=True)
     with open(data_json_path, "w", encoding="utf-8") as f:
         json.dump({"slot": result.slot, "lang": result.lang, "data": hook_data},
