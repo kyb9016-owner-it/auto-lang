@@ -47,6 +47,9 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO,
 )
+# httpx는 getUpdates 폴링(10초 간격)마다 INFO 한 줄을 남겨 하루 8,600줄이 쌓인다.
+# 실제 문제는 WARNING 이상에서만 드러나므로 폴링 성공 로그는 버린다.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
