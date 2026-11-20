@@ -3,6 +3,7 @@ import copy
 import importlib
 import json
 import os
+import random
 import subprocess
 import sys
 import tempfile
@@ -191,6 +192,77 @@ class FillScriptPureTest(unittest.TestCase):
     def test_parse_nothing(self):
         with self.assertRaises(ValueError):
             fhq.parse_claude_output(json.dumps({"result": ""}))
+
+
+class StyleTest(unittest.TestCase):
+    def test_choose_excludes_last_two(self):
+        av = ["a", "b", "c", "d"]
+        for seed in range(50):
+            got = fhq.choose_style(av, ["a", "b", "c"], random.Random(seed))
+            self.assertIn(got, ["a", "d"])  # 마지막 2개(b,c) 제외
+
+    def test_choose_fallback_all(self):
+        got = fhq.choose_style(["a", "b"], ["a", "b"], random.Random(1))
+        self.assertIn(got, ["a", "b"])
+        self.assertEqual(fhq.choose_style(["a"], ["a"], random.Random(1)), "a")
+
+    def test_choose_deterministic(self):
+        av = ["a", "b", "c", "d", "e"]
+        r1 = [fhq.choose_style(av, [], random.Random(7)) for _ in range(3)]
+        self.assertEqual(len(set(r1)), 1)
+        self.assertEqual(fhq.choose_style(av, [], random.Random(7)), random.Random(7).choice(av))
+
+    def test_choose_empty_raises(self):
+        with self.assertRaises(ValueError):
+            fhq.choose_style([], [], random.Random(0))
+
+    def test_list_styles(self):
+        with tempfile.TemporaryDirectory() as t:
+            for n in ["a", "b", "_x"]:
+                os.makedirs(os.path.join(t, "styles", n))
+                open(os.path.join(t, "styles", n, "index.html"), "w").close()
+            os.makedirs(os.path.join(t, "styles", "c"))
+            self.assertEqual(fhq.list_styles(t), ["a", "b"])
+            self.assertEqual(fhq.list_styles(t, ["b", "c", "zzz"]), ["b"])
+            self.assertEqual(fhq.list_styles(t, []), ["a", "b"])
+
+    def test_history_save_load_cap(self):
+        with tempfile.TemporaryDirectory() as t:
+            path = os.path.join(t, "sub", "dir", "h.json")
+            self.assertEqual(fhq.load_style_history(path), [])
+            for i in range(35):
+                fhq.record_style(f"s{i}", path)
+            hist = fhq.load_style_history(path)
+            self.assertEqual(len(hist), 30)
+            self.assertEqual(hist[0], "s5")
+            self.assertEqual(hist[-1], "s34")
+
+    def test_history_default_path_override(self):
+        with tempfile.TemporaryDirectory() as t:
+            old = fhq.STYLE_HISTORY_PATH
+            fhq.STYLE_HISTORY_PATH = os.path.join(t, "x", "h.json")
+            self.addCleanup(setattr, fhq, "STYLE_HISTORY_PATH", old)
+            fhq.record_style("a")
+            fhq.record_style("b")
+            self.assertEqual(fhq.load_style_history(), ["a", "b"])
+
+    def test_history_corrupt(self):
+        with tempfile.TemporaryDirectory() as t:
+            path = os.path.join(t, "h.json")
+            with open(path, "w") as f:
+                f.write("{broken")
+            self.assertEqual(fhq.load_style_history(path), [])
+
+
+class BackfillPureTest(unittest.TestCase):
+    def test_missing_videos(self):
+        names = ["b.json", "a.json", "a.mp4", "c.json", "c.mp4", "d.json.tmp", "x.mp4"]
+        self.assertEqual(fhq.missing_videos(names), ["b.json"])
+        self.assertEqual(fhq.missing_videos([]), [])
+
+    def test_parse_listing(self):
+        out = "en/a.json\nen/a.mp4\nzh/b.json\n\ngarbage\n"
+        self.assertEqual(fhq.parse_queue_listing(out), {"en": ["a.json", "a.mp4"], "zh": ["b.json"]})
 
 
 class ClaudeGenTest(unittest.TestCase):
