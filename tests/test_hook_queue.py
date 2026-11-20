@@ -113,6 +113,21 @@ class PopTest(unittest.TestCase):
         self.assertEqual(hook_queue.count("en"), 0)
         self.assertIsNone(hook_queue.pop("en"))
 
+    def test_pop_with_prerendered_video(self):
+        self.put("a.json", SAMPLE)
+        with open(os.path.join(self.q, "en", "a.mp4"), "wb") as f:
+            f.write(b"\x00mp4")
+        got = hook_queue.pop("en")
+        used_mp4 = os.path.join(self.q, "used", "a.mp4")
+        self.assertEqual(got["_reel_path"], used_mp4)
+        self.assertTrue(os.path.exists(used_mp4))
+        self.assertEqual(got["wrong"], SAMPLE["wrong"])
+
+    def test_empty_video_ignored(self):
+        self.put("a.json", SAMPLE)
+        open(os.path.join(self.q, "en", "a.mp4"), "wb").close()
+        self.assertNotIn("_reel_path", hook_queue.pop("en"))
+
     def test_broken_json_rejected(self):
         self.put("a.json", raw="{not json")
         self.put("b.json", SAMPLE)

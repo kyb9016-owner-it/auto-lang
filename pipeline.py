@@ -268,9 +268,16 @@ def run_generation(
 
     _step1_fonts(result, track_times)
     _step2_generate(result, output_dir, track_times)   # RuntimeError 가능
-    _step3_render(result, track_times)
-    _step4_tts(result, track_times)
-    _step5_reel(result, track_times)
+    # 맥에서 미리 렌더한 opuscar 스타일 릴스가 큐에 동봉돼 있으면 3~5단계 생략 (2026-11-20)
+    pre_reel = result.hook_data.pop("_reel_path", None)
+    pre_style = result.hook_data.pop("_reel_style", None)
+    if pre_reel and os.path.isfile(pre_reel):
+        print(f"\n[3-5/7] 미리 렌더된 릴스 사용 (스타일: {pre_style or '?'}) — {pre_reel}")
+        result.hook_reel_path = pre_reel
+    else:
+        _step3_render(result, track_times)
+        _step4_tts(result, track_times)
+        _step5_reel(result, track_times)
     _step6_recap(result, output_dir, topic, track_times)
 
     if not dry_run:

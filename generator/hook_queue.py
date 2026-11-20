@@ -63,5 +63,12 @@ def pop(lang: str) -> dict | None:
             _move(path, "rejected")
             continue
         _move(path, "used")
+        # 맥이 미리 렌더한 opuscar 스타일 릴스(같은 이름 .mp4)가 있으면 함께 옮기고 경로를 붙인다.
+        # pipeline은 _reel_path가 있으면 카드 렌더·TTS·합성(3~5단계)을 건너뛰고 이 영상을 올린다.
+        video = path[: -len(".json")] + ".mp4"
+        if os.path.isfile(video) and os.path.getsize(video) > 0:
+            _move(video, "used")
+            data["_reel_path"] = os.path.join(_root(), "used", os.path.basename(video))
+            data["_reel_style"] = payload.get("reel_style")
         return data
     return None
