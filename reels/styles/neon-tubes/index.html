@@ -1,0 +1,527 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>LangCard - neon-tubes</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+@font-face{font-family:"LCKR";src:url("fonts/NotoSansKR-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCJP";src:url("fonts/NotoSansJP-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCSC";src:url("fonts/NotoSansSC-Bold.ttf");font-weight:700;font-display:block}
+html,body{margin:0;padding:0;background:#000;overflow:hidden}
+canvas{display:block}
+</style></head>
+<body><canvas id="c"></canvas>
+<script src="common/timeline.js"></script>
+<script src="common/layout.js"></script>
+<script>
+// ===== LangCard / Neon Tubes 스타일 — 1080x1920, 결정적 render(t) =====
+// 비 오는 밤 벽돌 벽의 네온사인. 글자는 "글리프 몸통 자체가 튜브"다: 흰색 가스 기둥(코어) + 가장자리 포화색 + 유리 바깥 후광.
+// 불 꺼진 튜브(밀키 유리)가 먼저 보이고, 쓰는 동안 빛이 튜브를 따라 달려가며(전극→전극) 켜진다. 깜박이며 점등(strike)·균열(crack)은 STYLE.md의 문법.
+// 화면 구성: 벽돌 벽(고정) → 칠한 간판 판(ctx) → 네온 레이어(N) → 블룸(다운샘플 캐스케이드)로 벽·판에 번지는 빛 → 젖은 길 반사 → 비·비네팅.
+const W = 1080, H = 1920;
+const SAFE = LCL.SAFE;
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const ctx = cv.getContext('2d');
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const nl = mk(W, H), N = nl.getContext('2d');                    // 네온 레이어(투명 바탕)
+const sl = mk(W, H), S = sl.getContext('2d');                    // 선명 글자 레이어(작은 글씨: 블룸에 안 섞이고 맨 위에 그려짐)
+const MID = 150;                                                   // 화면상 84~150px: '중간 모드'(약한 글로우+어두운 윤곽, 블룸 없음) · 150 이상(과 첫 2초 훅)만 완전한 네온 후광
+const SMALL = 84;                                                  // 화면상 글자 크기가 이보다 작으면 '선명 모드'(글로우 거의 없음·어두운 테두리·흰 심)
+const mctx = mk(8, 8).getContext('2d');                           // 줄바꿈 측정용
+const LA = mk(270, 480), LB = mk(68, 120), LC_ = mk(17, 30), UB = mk(270, 480), UC = mk(270, 480);   // 블룸 캐스케이드
+const gA = LA.getContext('2d'), gB = LB.getContext('2d'), gC = LC_.getContext('2d'), gUB = UB.getContext('2d'), gUC = UC.getContext('2d');
+
+// 가스 색(STYLE.md §3): 투명유리+네온=적주황, 아르곤=파랑, 나머지는 형광체. 오답=적주황, 정답=터콰이즈(주인공 색)
+const RED = '#ff3a1c', AQUA = '#1ff2d9', PINK = '#ff3d9e', BLUE = '#4f86ff', PBLUE = '#9bb6ff', YEL = '#ffd23d', WARM = '#ffe9d2', LAV = '#cdb8ff';
+
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const prog = (t, a, d) => clamp((t - a) / d);
+const tlWrite = tx => LC.writeDur(tx);
+const hx = h => { const n = parseInt(h.slice(1), 16); return [n >> 16, n >> 8 & 255, n & 255]; };
+const mixc = (h, t) => { const [r, g, b] = hx(h), m = v => Math.round(v + (255 - v) * t); return `rgb(${m(r)},${m(g)},${m(b)})`; };    // 흰색 쪽으로
+const rgba = (h, a) => { const [r, g, b] = hx(h); return `rgba(${r},${g},${b},${a})`; };
+const darken = (h, k) => { const [r, g, b] = hx(h); return `rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`; };
+
+let tl = null, LAY = {}, TX = [], LANG = 'en', LX = null;
+let bg = null, vig = null;
+let GA = 1;     // 장면 전체 밝기 배수(전환 중 꺼지는 옛 장면의 깜박임)
+let MS = 1;     // 교류 전원 미세 떨림(±3%)
+
+// ---------- 글꼴(chalkboard와 같은 방식) ----------
+const STACK = { ko: 'Fredoka, LCKR, LCJP, LCSC, sans-serif', tg: null };
+const fontStr = (kind, size) => `700 ${size}px ${STACK[kind]}`;
+
+// ---------- 점등(strike): 100% 50ms → 꺼짐 70ms → 70% → 꺼짐 → 0.1초 램프 (STYLE.md §5) ----------
+function strikeAmp(tau) {
+  if (tau < 0) return 0;
+  if (tau < .05) return 1; if (tau < .12) return 0; if (tau < .20) return .7; if (tau < .27) return 0;
+  if (tau < .37) { const u = (tau - .27) / .10; return u * u * (3 - 2 * u); }
+  return 1;
+}
+// 다 쓴 글씨가 자리 잡을 때의 작은 깜박임(읽는 데 방해 안 되게 0.13초)
+function settleAmp(tau) { if (tau < 0 || tau > .13) return 1; return tau < .04 ? .35 : tau < .09 ? 1 : .55; }
+
+// ---------- 배경: 어두운 벽돌 벽 + 젖은 길 ----------
+const STREET = 1600;
+function makeBg() {
+  const c = mk(W, H), g = c.getContext('2d'), r = rng(21);
+  g.fillStyle = '#07060b'; g.fillRect(0, 0, W, H);
+  const bh = 46, bw = 112;
+  for (let row = 0, y = -10; y < STREET; row++, y += bh) {
+    const off = row % 2 ? -bw / 2 : 0;
+    for (let x = off; x < W; x += bw) {
+      const l = 7 + r() * 8, hue = 8 + r() * 22, s = 30 + r() * 25;
+      g.fillStyle = `hsl(${hue},${s}%,${l}%)`; g.fillRect(x + 2, y + 2, bw - 4, bh - 4);
+      g.fillStyle = 'rgba(255,255,255,.025)'; g.fillRect(x + 2, y + 2, bw - 4, 3);       // 윗면 하이라이트(조명이 올 때 요철이 살아남)
+      g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(x + 2, y + bh - 6, bw - 4, 4);
+    }
+  }
+  // 낡은 얼룩(위에서 흘러내린 빗물 자국)
+  for (let i = 0; i < 14; i++) { const x = r() * W, gr = g.createLinearGradient(0, 0, 0, 900 + r() * 500); gr.addColorStop(0, 'rgba(0,0,0,.28)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x, 0, 14 + r() * 40, STREET); }
+  const sh = g.createLinearGradient(0, 0, 0, STREET); sh.addColorStop(0, 'rgba(0,0,0,.55)'); sh.addColorStop(.5, 'rgba(0,0,0,.1)'); sh.addColorStop(1, 'rgba(0,0,0,.3)');
+  g.fillStyle = sh; g.fillRect(0, 0, W, STREET);
+  // 도로: 연석 + 젖은 아스팔트
+  g.fillStyle = '#16151b'; g.fillRect(0, STREET - 14, W, 22);
+  g.fillStyle = 'rgba(255,255,255,.07)'; g.fillRect(0, STREET - 14, W, 3);
+  const ag = g.createLinearGradient(0, STREET + 8, 0, H); ag.addColorStop(0, '#0b0b10'); ag.addColorStop(1, '#050508');
+  g.fillStyle = ag; g.fillRect(0, STREET + 8, W, H - STREET - 8);
+  for (let i = 0; i < 900; i++) { g.fillStyle = `rgba(255,255,255,${.02 + .05 * r()})`; g.fillRect(r() * W, STREET + 12 + r() * (H - STREET), 1 + r() * 2, 1); }   // 골재 반짝임
+  return c;
+}
+function makeVig() {
+  const c = mk(W, H), g = c.getContext('2d'), gr = g.createRadialGradient(540, 900, 380, 540, 960, 1250);
+  gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.62)');
+  g.fillStyle = gr; g.fillRect(0, 0, W, H); return c;
+}
+
+// ---------- 간판 판(칠한 보드) ----------
+function rrect(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+function board(c, x, y, w, h, col, r) {
+  r = r || 40; c.save();
+  rrect(c, x, y, w, h, r); const gr = c.createLinearGradient(0, y, 0, y + h); gr.addColorStop(0, mixc(col, .04)); gr.addColorStop(1, col);
+  c.fillStyle = gr; c.fill();
+  c.lineWidth = 8; c.strokeStyle = 'rgba(0,0,0,.7)'; c.stroke();
+  rrect(c, x + 5, y + 5, w - 10, h - 10, r - 4); c.lineWidth = 2; c.strokeStyle = 'rgba(255,255,255,.07)'; c.stroke();
+  [[x + 30, y + 30], [x + w - 30, y + 30], [x + 30, y + h - 30], [x + w - 30, y + h - 30]].forEach(([bx, by]) => {      // 튜브를 받치는 볼트
+    c.fillStyle = '#23232b'; c.beginPath(); c.arc(bx, by, 7, 0, 7); c.fill(); c.fillStyle = 'rgba(255,255,255,.25)'; c.beginPath(); c.arc(bx - 2, by - 2, 2.4, 0, 7); c.fill(); });
+  c.restore();
+}
+
+// ---------- 튜브(폴리라인) ----------
+function plen(P) { let L = 0; for (let i = 0; i < P.length - 1; i++) L += Math.hypot(P[i + 1][0] - P[i][0], P[i + 1][1] - P[i][1]); return L; }
+function trace(c, P, want) {
+  c.beginPath(); c.moveTo(P[0][0], P[0][1]); let ac = 0, tip = P[0];
+  for (let i = 0; i < P.length - 1; i++) {
+    const s = Math.hypot(P[i + 1][0] - P[i][0], P[i + 1][1] - P[i][1]);
+    if (ac + s <= want) { c.lineTo(P[i + 1][0], P[i + 1][1]); ac += s; tip = P[i + 1]; }
+    else { const u = (want - ac) / s; tip = [lerp(P[i][0], P[i + 1][0], u), lerp(P[i][1], P[i + 1][1], u)]; c.lineTo(tip[0], tip[1]); break; }
+  }
+  return tip;
+}
+// 불 꺼진 유리(희미한 밀키 회색)를 깔고, p만큼 점등. o.amp 밝기, o.chase = 시간(달리는 점등 세그먼트)
+function tube(c, P, p, col, w, o) {
+  o = o || {};
+  const L = plen(P);
+  if (o.ghost !== false) { c.save(); c.lineCap = c.lineJoin = 'round'; c.strokeStyle = 'rgba(175,195,215,.30)'; c.lineWidth = w * .8; trace(c, P, L); c.stroke(); c.restore(); }
+  if (p <= 0) return;
+  const amp = (o.amp == null ? 1 : o.amp) * GA * MS; if (amp <= 0) return;
+  const want = L * clamp(p), core = mixc(col, .85);
+  c.save(); c.lineCap = c.lineJoin = 'round';
+  const passes = [[4, .13, col, 'lighter'], [2.2, .38, col, 'lighter'], [1, 1, col, 'source-over'], [.42, .96, core, 'source-over']];
+  const base = o.chase != null ? .42 : 1;
+  passes.forEach(([k, a, cl, op]) => { c.globalCompositeOperation = op; c.globalAlpha = clamp(a * amp * base); c.strokeStyle = cl; c.lineWidth = w * k; trace(c, P, want); c.stroke(); });
+  if (o.chase != null) {     // 체이서: 16분음표처럼 달리는 밝은 구간
+    c.setLineDash([w * 5, w * 4]); c.lineDashOffset = -o.chase * w * 22;
+    passes.forEach(([k, a, cl, op]) => { c.globalCompositeOperation = op; c.globalAlpha = clamp(a * amp); c.strokeStyle = cl; c.lineWidth = w * k; trace(c, P, want); c.stroke(); });
+    c.setLineDash([]);
+  }
+  if (p < 1) {      // 달려가는 빛의 끝(전극에서 번쩍)
+    const tip = trace(c, P, want); c.beginPath();
+    const gr = c.createRadialGradient(tip[0], tip[1], 0, tip[0], tip[1], w * 4.5); gr.addColorStop(0, 'rgba(255,255,255,.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    c.globalCompositeOperation = 'lighter'; c.globalAlpha = clamp(amp); c.fillStyle = gr; c.fillRect(tip[0] - w * 5, tip[1] - w * 5, w * 10, w * 10);
+  }
+  c.restore();
+}
+function rrPts(x, y, w, h, r) {
+  const a = [], arc = (cx, cy, a0) => { for (let i = 0; i <= 4; i++) { const t = a0 + i * Math.PI / 8; a.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); } };
+  a.push([x + r, y]); a.push([x + w - r, y]); arc(x + w - r, y + r, -Math.PI / 2);
+  a.push([x + w, y + h - r]); arc(x + w - r, y + h - r, 0);
+  a.push([x + r, y + h]); arc(x + r, y + h - r, Math.PI / 2);
+  a.push([x, y + r]); arc(x + r, y + r, Math.PI); a.push([x + r + 2, y]);
+  return a;
+}
+
+// ---------- 글자 튜브 캐시 ----------
+// on = 후광 + 튜브(흰 코어, 가장자리 포화색), off = 불 꺼진 밀키 유리. 블록(줄바꿈 결과)·색·정렬별로 한 번만 만든다.
+const TC = new Map();
+function tcache(B, color, mode, tier) {
+  const small = tier === 2, key = [B.kind, B.size, mode, color, tier, B.lines.join('\n')].join('|'); let e = TC.get(key); if (e) return e;
+  const pad = Math.ceil(B.size * .6 + 20), w = Math.ceil(B.w + 2 * pad), h = Math.ceil(B.h + 2 * pad);
+  const on = mk(w, h), off = mk(w, h), tb = mk(w, h), g = on.getContext('2d'), gt = tb.getContext('2d'), go = off.getContext('2d');
+  const lx = i => pad + (mode === 'c' ? (B.w - B.lw[i]) / 2 : 0), ly = i => pad + i * B.lhp + B.lhp / 2;
+  [g, gt, go].forEach(c => { c.font = fontStr(B.kind, B.size); c.textBaseline = 'middle'; c.lineJoin = 'round'; });
+  // 튜브: 색 윤곽을 먼저 깔고 그 위에 흰 심을 덮는다(글리프 내부 겹침 윤곽에 색 선이 비쳐 보이던 문제 방지)
+  gt.strokeStyle = small ? rgba(color, .55) : color; gt.lineWidth = small ? Math.max(1.5, B.size * .035) * 2 : Math.max(2, B.size * .045) * 2; gt.lineJoin = 'round';
+  B.lines.forEach((ln, i) => gt.strokeText(ln, lx(i), ly(i)));
+  gt.fillStyle = mixc(color, small ? .92 : .88); B.lines.forEach((ln, i) => gt.fillText(ln, lx(i), ly(i)));
+  if (small) {      // 작은 글씨: 어두운 윤곽(배경 대비) → 아주 약한 색 글로우(반경 ≤ 0.12×크기) → 흰 심
+    g.strokeStyle = 'rgba(4,4,10,.88)'; g.lineWidth = Math.max(5, B.size * .26); g.lineJoin = 'round';
+    B.lines.forEach((ln, i) => g.strokeText(ln, lx(i), ly(i)));
+    g.fillStyle = rgba(color, .55); g.shadowColor = rgba(color, .5); g.shadowBlur = B.size * .12; B.lines.forEach((ln, i) => g.fillText(ln, lx(i), ly(i)));
+  } else if (tier === 1) {      // 중간 글씨: 어두운 윤곽 + 절제된 글로우(반경 0.2×크기)
+    g.strokeStyle = 'rgba(4,4,10,.8)'; g.lineWidth = Math.max(6, B.size * .2); g.lineJoin = 'round';
+    B.lines.forEach((ln, i) => g.strokeText(ln, lx(i), ly(i)));
+    g.fillStyle = rgba(color, .8); g.shadowColor = rgba(color, .7); g.shadowBlur = B.size * .2; B.lines.forEach((ln, i) => g.fillText(ln, lx(i), ly(i)));
+  } else {
+    g.fillStyle = color; g.shadowColor = rgba(color, .85); g.shadowBlur = B.size * .28; B.lines.forEach((ln, i) => g.fillText(ln, lx(i), ly(i)));
+    g.shadowBlur = B.size * .12; B.lines.forEach((ln, i) => g.fillText(ln, lx(i), ly(i)));
+  }
+  g.shadowBlur = 0; g.shadowColor = 'transparent'; g.drawImage(tb, 0, 0);
+  go.fillStyle = 'rgba(160,178,205,.11)'; go.strokeStyle = 'rgba(175,195,220,.5)'; go.lineWidth = Math.max(1.4, B.size * .03);
+  B.lines.forEach((ln, i) => { go.fillText(ln, lx(i), ly(i)); go.strokeText(ln, lx(i), ly(i)); });
+  e = { on, off, pad }; TC.set(key, e); return e;
+}
+// B: fit() 결과 + {cx,y}. p: 켜지는 진행 0~1(왼→오 달리는 빛). o: {t, rep, left, alpha, lineAmp(i), mixTo, mix, ghostA}
+function put(B, p, color, o) {
+  o = o || {};
+  const mode = o.left != null ? 'l' : 'c', x0 = o.left != null ? o.left : B.cx - B.w / 2, y0 = B.y;
+  const eff = B.size * Math.abs(N.getTransform().a), tier = eff < SMALL ? 2 : (eff < MID && !(B.id === 'hook' && eff >= 100)) ? 1 : 0, sm = tier === 2, Z = tier ? S : N;      // 작은 글씨는 선명 레이어 S에
+  const e = tcache(B, color, mode, tier), pad = e.pad, e2 = o.mixTo ? tcache(B, o.mixTo, mode, tier) : null;
+  if (sm) { o = Object.assign({}, o, { lineAmp: null, alpha: o.alpha == null ? 1 : Math.max(.9, o.alpha) }); }
+  Z.save(); Z.globalAlpha = (o.ghostA == null ? .6 : o.ghostA) * GA; Z.drawImage(e.off, x0 - pad, y0 - pad); Z.restore();   // 꺼진 유리는 장면 시작부터 보인다
+  if (p <= 0) return;
+  const total = B.lw.reduce((a, b) => a + b, 0), reveal = clamp(p) * total, full = reveal >= total - .01;
+  const amps = B.lines.map((_, i) => (o.lineAmp ? o.lineAmp(i) : 1) * (o.alpha == null ? 1 : o.alpha) * GA * (sm ? 1 : MS));
+  const same = amps.every(a => a === amps[0]);
+  const lay = a => {
+    if (a <= 0) return;
+    const m = o.mix || 0;
+    Z.globalAlpha = clamp(a * (1 - m)); Z.drawImage(e.on, x0 - pad, y0 - pad);
+    if (e2 && m > 0) { Z.globalAlpha = clamp(a * m); Z.drawImage(e2.on, x0 - pad, y0 - pad); }
+  };
+  Z.save();
+  if (full && same) lay(amps[0]);
+  else {
+    let cum = 0;
+    B.lines.forEach((ln, i) => {
+      const lw = B.lw[i], lxx = mode === 'c' ? x0 + (B.w - lw) / 2 : x0, rw = clamp((reveal - cum) / lw) * lw; cum += lw;
+      if (rw <= 0) return;
+      const top = y0 + i * B.lhp, ct = i === 0 ? top - pad : top, cb = i === B.lines.length - 1 ? top + B.lhp + pad : top + B.lhp;
+      const cl = lxx - pad, cr = rw >= lw - .01 ? lxx + lw + pad : lxx + rw;
+      Z.save(); Z.beginPath(); Z.rect(cl, ct, cr - cl, cb - ct); Z.clip(); lay(amps[i]); Z.restore();
+    });
+  }
+  Z.restore();
+  if (!full && !tier) {   // 달리는 빛의 앞머리 섬광
+    let cum = 0;
+    B.lines.forEach((ln, i) => {
+      const lw = B.lw[i], lxx = mode === 'c' ? x0 + (B.w - lw) / 2 : x0, rw = clamp((reveal - cum) / lw) * lw; cum += lw;
+      if (rw <= 0 || rw >= lw - .01) return;
+      const fx = lxx + rw, fy = y0 + i * B.lhp + B.lhp / 2, R = B.size * .9, gr = Z.createRadialGradient(fx, fy, 0, fx, fy, R);
+      gr.addColorStop(0, 'rgba(255,255,255,.75)'); gr.addColorStop(.35, rgba(color, .35)); gr.addColorStop(1, rgba(color, 0));
+      Z.save(); Z.globalCompositeOperation = 'lighter'; Z.globalAlpha = GA; Z.fillStyle = gr; Z.fillRect(fx - R, fy - R, 2 * R, 2 * R); Z.restore();
+    });
+  }
+  if (o.rep !== false) {
+    const m = Z.getTransform();
+    TX.push({ id: B.id, text: B.text, x0: m.a * x0 + m.e, x1: m.a * (x0 + B.w) + m.e, y0: m.d * y0 + m.f, y1: m.d * (y0 + B.h) + m.f });
+  }
+}
+
+// ---------- 레이아웃(폰트 로드 후 1회) ----------
+const YC = 890;
+function layout() {
+  const C = tl.C, L = {}, M = LCL.MIN, SF = LCL.SAFE;
+  STACK.tg = LANG === 'ja' ? 'Fredoka, LCJP, LCKR, sans-serif' : LANG === 'zh' ? 'Fredoka, LCSC, LCKR, sans-serif' : 'Fredoka, LCKR, sans-serif';
+  LX = LCL.make(mctx, fontStr);
+  // 훅: 처음 2초 화면 가득(≥110px). 같은 줄바꿈 그대로 52px 제목으로 줄어 위에 남는다
+  let hb = LX.fit(C.hook, 'ko', { maxW: 880, maxLines: 3, s0: 150, s1: M.hook, lh: 1.22 });
+  if (hb.lines.length > 3 || hb.w > 881) hb = LX.fit(C.hook, 'ko', { maxW: 880, maxLines: 4, s0: M.hook, s1: 80, lh: 1.22 });
+  hb.id = 'hook'; hb.cx = 540; hb.y = YC - 20 - hb.h / 2;
+  const f = Math.min(1, M.title / hb.size);
+  L.hook = { B: hb, f, cy: hb.y + hb.h / 2, titleTop: 292 };
+  const titleBottom = 292 + f * hb.h;
+  // WRONG / RIGHT: 같은 자리의 판. 제목 간판 아래에서 시작해 y 1480까지
+  const iconCy = titleBottom + 130, y0 = iconCy + 95, y1 = SF.bottom, mw = 900;
+  const boardOf = (items, col) => { const last = items[items.length - 1], bot = Math.min(1520, last.y + last.h + 70), top = titleBottom + 36; return { x: 50, y: top, w: 980, h: bot - top, col }; };
+  L.wrong = { cy: iconCy, items: LX.stack([
+    { id: 'wrong', text: C.wrong, kind: 'tg', s0: 130, s1: M.body, maxLines: 3, color: RED, lh: 1.22 },
+    { id: 'wrongPh', text: C.wrongPh, kind: 'ko', s0: 68, s1: 40, maxLines: 2, color: PBLUE, gap: 44, lh: 1.28 }], y0, y1, mw) };
+  L.wrong.board = boardOf(L.wrong.items, '#2a0b0d');
+  L.right = { cy: iconCy, items: LX.stack([
+    { id: 'right', text: C.right, kind: 'tg', s0: 130, s1: M.body, maxLines: 3, color: AQUA, lh: 1.22 },
+    { id: 'rightPh', text: C.rightPh, kind: 'ko', s0: 64, s1: 40, maxLines: 2, color: PBLUE, gap: 36, lh: 1.28 },
+    { id: 'roman', text: C.roman, kind: 'tg', s0: 56, s1: 36, maxLines: 2, color: PBLUE, gap: 14, lh: 1.25 },
+    { id: 'rightKo', text: C.rightKo, kind: 'ko', s0: 70, s1: 44, maxLines: 3, color: WARM, gap: 46, lh: 1.3 }], y0, y1, mw) };
+  L.right.board = boardOf(L.right.items, '#0a1626');
+  if (C.explain) {
+    const b = LX.fit(C.explain, 'ko', { maxW: 780, maxLines: 5, s0: 104, s1: 60, lh: 1.36 });
+    b.id = 'explain'; b.cx = 540; b.y = YC - b.h / 2; b.color = WARM;
+    L.explain = { B: b, box: [540 - b.w / 2 - 56, b.y - 60, b.w + 112, b.h + 120] };
+  }
+  L.dialogue = LX.dialogue(C.dialogue, { y0: SF.top + 20, y1: SF.bottom, gap: 70 });
+  L.dialogue.forEach((r, i) => { [r.a, r.b, r.c].forEach((p, k) => { if (p) p.color = (k === 0 && i === C.hl) ? AQUA : (k === 1 ? PBLUE : WARM); }); });
+  { const cards = C.vocab.map((v, i) => {
+      const w = LX.fit(v.word, 'tg', { maxW: 640, maxLines: 1, s0: 140, s1: 72, lh: 1.15 }); w.id = 'v' + i + 'w';
+      const ty = v.type ? LX.fit(v.type, 'ko', { maxW: 230, maxLines: 1, s0: 44, s1: 32, lh: 1.2 }) : null; if (ty) ty.id = 'v' + i + 't';
+      const m = v.meaning ? LX.fit(v.meaning, 'ko', { maxW: 900, maxLines: 2, s0: 66, s1: 44, lh: 1.28 }) : null; if (m) m.id = 'v' + i + 'm';
+      const p = v.phonetic ? LX.fit(v.phonetic, 'ko', { maxW: 900, maxLines: 1, s0: 54, s1: 38, lh: 1.25 }) : null; if (p) p.id = 'v' + i + 'p';
+      const h = w.h + 16 + (m ? m.h : 0) + (p ? p.h + 6 : 0);
+      return { w, ty, m, p, h };
+    });
+    const GAPC = 90, tot = cards.reduce((s, c) => s + c.h, 0) + GAPC * (cards.length - 1);
+    let y = YC - tot / 2;
+    cards.forEach(k => { k.top = y; k.w.y = y; let yy = y + k.w.h + 16; if (k.ty) k.ty.y = y + (k.w.h - k.ty.h) / 2 + 8; if (k.m) { k.m.y = yy; yy += k.m.h; } if (k.p) k.p.y = yy + 6; k.div = y + k.h + GAPC / 2; y += k.h + GAPC; });
+    L.vocab = cards; L.vocabBoard = { x: 50, y: Math.max(292, YC - tot / 2 - 70), w: 980, h: tot + 140 }; }
+  { const b = LX.fit(C.cta || C.handle, 'ko', { maxW: 900, maxLines: 4, s0: 108, s1: 60, lh: 1.28 }); b.id = 'cta'; b.cx = 540;
+    const h = LX.fit(C.handle, 'ko', { maxW: 900, maxLines: 1, s0: 92, s1: 48, lh: 1.2 }); h.id = 'handle'; h.cx = 540;
+    const tot = 180 + 60 + b.h + 40 + 110 + h.h; let y = YC - tot / 2;
+    L.cta = { iconY: y, b, h, board: { x: 50, y: Math.max(292, y - 80), w: 980, h: tot + 160 } }; b.y = y + 180 + 60; h.y = b.y + b.h + 40 + 110; }
+  LAY = L;
+}
+
+// ---------- 장면 그리기 ----------
+function sparks(t, seed, cx, cy, rx, ry, n, age, life) {     // 합선 불꽃(번개 모양 짧은 선)
+  if (age <= 0 || age > life) return;
+  const R = rng(seed + Math.floor(t * 14) * 101);
+  for (let i = 0; i < n; i++) {
+    const a = R() * 6.283, r0 = 1, pts = [[cx + Math.cos(a) * rx * r0, cy + Math.sin(a) * ry * r0]];
+    let x = pts[0][0], y = pts[0][1];
+    for (let k = 0; k < 4; k++) { x += Math.cos(a) * (28 + R() * 40) + (R() - .5) * 34; y += Math.sin(a) * (28 + R() * 40) + (R() - .5) * 34; pts.push([x, y]); }
+    tube(N, pts, 1, i % 2 ? '#ffffff' : PINK, 4, { ghost: false, amp: (1 - age / life) * (R() < .35 ? .3 : 1) });
+  }
+}
+function drawHook(t) {
+  const L = LAY.hook, B = L.B, hk = tl.by.hook;
+  if (t >= hk.titleUntil) return;
+  const [m0, m1] = hk.cue.move, mv = ease((t - m0) / (m1 - m0));
+  const pop = t < .6 ? 1 + .08 * Math.exp(-t * 11) * Math.cos(t * 26) : 1;
+  const sc = pop * lerp(1, L.f, mv), ty = lerp(L.cy, L.titleTop + L.f * B.h / 2, mv);
+  const shake = t > .16 && t < .7 ? Math.exp(-(t - .16) * 8) : 0;
+  for (const c of [ctx, N, S]) { c.save(); c.translate(540 + Math.sin(t * 95) * 9 * shake, ty + Math.cos(t * 83) * 6 * shake); c.scale(sc, sc); c.translate(-540, -L.cy); }
+  const bx = 540 - B.w / 2 - 70, by = B.y - 60, bw = B.w + 140, bh = B.h + 120;
+  board(ctx, bx, by, bw, bh, '#1a0a24', 46);
+  // 테두리 튜브: 시작과 동시에 점등 + 마키 전구가 달린다(첫 2초 시선 고정)
+  const fp = rrPts(bx + 26, by + 26, bw - 52, bh - 52, 34);
+  tube(N, fp, prog(t, 0, .35), BLUE, 9, { amp: strikeAmp(t - .02) });
+  const per = plen(fp), nb = Math.round(per / 52), ph = Math.floor(t * 9);
+  for (let i = 0; i < nb; i++) {
+    let d = per * i / nb, k = 0; while (k < fp.length - 1) { const s = Math.hypot(fp[k + 1][0] - fp[k][0], fp[k + 1][1] - fp[k][1]); if (d <= s) break; d -= s; k++; }
+    if (k >= fp.length - 1) continue;
+    const s = Math.hypot(fp[k + 1][0] - fp[k][0], fp[k + 1][1] - fp[k][1]) || 1, px = lerp(fp[k][0], fp[k + 1][0], d / s), py = lerp(fp[k][1], fp[k + 1][1], d / s);
+    const lit = (i + ph) % 3 === 0 && t > .12, a = (lit ? 1 : .28) * GA;
+    N.save(); N.globalCompositeOperation = 'lighter'; N.globalAlpha = a; N.fillStyle = lit ? rgba(YEL, .38) : rgba(YEL, .08); N.beginPath(); N.arc(px, py, 15, 0, 7); N.fill();
+    N.globalAlpha = a; N.fillStyle = lit ? '#fff4c0' : 'rgba(180,170,150,.5)'; N.beginPath(); N.arc(px, py, 5.5, 0, 7); N.fill(); N.restore();
+  }
+  put(B, 1, PINK, { t, rep: true, lineAmp: i => strikeAmp(t - i * .06) });
+  const u = B.y + B.h + 14, zz = [], n = 9, ww = B.w * .5;      // 터콰이즈 지그재그 밑줄(.3~.85초에 달려 켜짐)
+  for (let i = 0; i <= n; i++) zz.push([540 - ww + (2 * ww) * i / n, u + (i % 2 ? 12 : -4)]);
+  tube(N, zz, prog(t, .3, .55), AQUA, 9, {});
+  sparks(t, 4242, 540, L.cy, B.w * .5 + 90, B.h * .5 + 70, 7, t - .16, .55);
+  for (const c of [ctx, N, S]) c.restore();
+}
+function iconCross(cy, t, t0) {
+  tube(N, [[484, cy - 56], [596, cy + 56]], prog(t, t0, .22), RED, 18, { amp: strikeAmp(t - t0) });
+  tube(N, [[596, cy - 56], [484, cy + 56]], prog(t, t0 + .12, .22), RED, 18, { amp: strikeAmp(t - t0 - .12) });
+}
+function iconCheck(cy, t, t0) { tube(N, [[472, cy], [524, cy + 58], [616, cy - 58]], prog(t, t0, .4), AQUA, 20, { amp: strikeAmp(t - t0) }); }
+function drawWrong(t, sc) {
+  const cu = sc.cue, L = LAY.wrong, rep = t < sc.t1, bd = L.board;
+  board(ctx, bd.x, bd.y, bd.w, bd.h, bd.col, 44);
+  iconCross(L.cy, t, cu.icon);
+  L.items.forEach(B => {
+    const st = B.id === 'wrong' ? cu.text : cu.ph, p = prog(t, st, tlWrite(B.text)), done = st + tlWrite(B.text);
+    const o = { t, rep, lineAmp: () => settleAmp(t - done) };
+    let tau = -1;
+    if (B.id === 'wrong' && t > cu.strike) {     // 음성이 끝나면 균열: 흰 섬광 → 연보라로 창백 → 한 구간씩 꺼짐
+      tau = t - cu.strike;
+      const fl = tau < .9 && rng(Math.floor(t * 24) * 13 + 7)() < .25 ? .3 : 1;
+      o.mixTo = LAV; o.mix = clamp((tau - .08) / .3); o.alpha = (1 - .62 * clamp((tau - .35) / .5)) * fl; o.lineAmp = null;
+    }
+    put(B, p, B.color, o);
+    if (tau > 0) {
+      const cx = B.cx, cyy = B.y + B.h / 2, R = Math.max(B.w * .55, 160);
+      if (tau < .16) { const gr = N.createRadialGradient(cx, cyy, 0, cx, cyy, R); gr.addColorStop(0, 'rgba(255,255,255,.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+        N.save(); N.globalCompositeOperation = 'lighter'; N.globalAlpha = (1 - tau / .16) * .7 * GA; N.fillStyle = gr; N.fillRect(cx - R, cyy - R, 2 * R, 2 * R); N.restore(); }
+      B.lines.forEach((ln, i) => {       // 튜브가 끊긴 틈(대각선)
+        const lx = B.cx - B.lw[i] / 2, my = B.y + i * B.lhp + B.lhp * .52, pp = prog(tau, i * .1, .18);
+        if (pp <= 0) return;
+        for (const Q of [N, S]) { Q.save(); Q.globalCompositeOperation = 'destination-out'; Q.lineWidth = Math.max(7, B.size * .1); Q.lineCap = 'round'; Q.globalAlpha = 1;
+          Q.beginPath(); Q.moveTo(lx - 16, my + 6); Q.lineTo(lerp(lx - 16, lx + B.lw[i] + 16, pp), lerp(my + 6, my - 8, pp)); Q.stroke(); Q.restore(); }
+      });
+    }
+  });
+}
+function drawRight(t, sc) {
+  const cu = sc.cue, L = LAY.right, rep = t < sc.t1, bd = L.board, st = { right: cu.text, rightPh: cu.ph, roman: cu.roman, rightKo: cu.ko };
+  board(ctx, bd.x, bd.y, bd.w, bd.h, bd.col, 44);
+  iconCheck(L.cy, t, cu.icon);
+  L.items.forEach(B => { const done = st[B.id] + tlWrite(B.text); put(B, prog(t, st[B.id], tlWrite(B.text)), B.color, { t, rep, lineAmp: () => settleAmp(t - done) }); });
+  const R = L.items[0]; if (R) {      // 정답 줄 아래 밑줄 튜브(생명이 들어온다: 두 번 깜박이며 점등)
+    const t0 = cu.text + tlWrite(R.text), last = R.lines.length - 1, lx = R.cx - R.lw[last] / 2, uy = R.y + R.h - R.lhp * .08;
+    tube(N, [[lx, uy + 4], [lx + R.lw[last], uy - 3]], prog(t, t0, .3), AQUA, 8, { amp: strikeAmp(t - t0) });
+  }
+}
+function drawExplain(t, sc) {
+  const cu = sc.cue, L = LAY.explain, rep = t < sc.t1, [bx, by, bw, bh] = L.box;
+  board(ctx, bx - 30, by - 30, bw + 60, bh + 60, '#1a0a24', 44);
+  tube(N, rrPts(bx, by, bw, bh, 38), prog(t, cu.box, .6), BLUE, 8, { chase: t > cu.box + .6 ? t : null });
+  const done = cu.text + tlWrite(L.B.text);
+  put(L.B, prog(t, cu.text, tlWrite(L.B.text)), WARM, { t, rep, lineAmp: () => settleAmp(t - done) });
+}
+function bubble(t, r, cu, i) {
+  const hl = i === tl.C.hl, p = (t - cu.bubble) / .4, col = hl ? AQUA : BLUE;
+  rrect(ctx, r.x, r.y, r.w, r.h, 34); ctx.save(); ctx.fillStyle = hl ? '#07241f' : '#0a1626'; ctx.fill(); ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.stroke(); ctx.restore();
+  tube(N, rrPts(r.x, r.y, r.w, r.h, 34), prog(p, 0, 1), col, hl ? 9 : 7, {});
+  const ty = r.side === 'L' ? [[r.x + 64, r.y + r.h - 1], [r.x + 34, r.y + r.h + 30], [r.x + 124, r.y + r.h - 1]] : [[r.x + r.w - 64, r.y + r.h - 1], [r.x + r.w - 34, r.y + r.h + 30], [r.x + r.w - 124, r.y + r.h - 1]];
+  tube(N, ty, prog(p, .8, .2), col, hl ? 9 : 7, {});
+}
+function drawDialogue(t, sc) {
+  const rep = t < sc.t1;
+  LAY.dialogue.forEach((r, i) => {
+    const cu = sc.cue.turns[i]; if (t < cu.bubble) return;
+    bubble(t, r, cu, i);
+    [[r.a, cu.line], [r.b, cu.ph], [r.c, cu.ko]].forEach(([B, st]) => { if (!B) return; const done = st + tlWrite(B.text); put(B, prog(t, st, tlWrite(B.text)), B.color, { t, rep, lineAmp: () => settleAmp(t - done) }); });
+  });
+}
+function drawVocab(t, sc) {
+  const rep = t < sc.t1, vb = LAY.vocabBoard;
+  board(ctx, vb.x, vb.y, vb.w, vb.h, '#1a0a24', 44);
+  LAY.vocab.forEach((k, i) => {
+    const cu = sc.cue.cards[i]; if (t < cu.word) return;
+    const pp = (B, st, color, left) => { const done = st + tlWrite(B.text); put(B, prog(t, st, tlWrite(B.text)), color, { t, rep, left, lineAmp: () => settleAmp(t - done) }); };
+    pp(k.w, cu.word, YEL, SAFE.x0 + 10);
+    if (k.ty) pp(Object.assign(k.ty, { cx: 0 }), cu.type, PBLUE, SAFE.x1 - k.ty.lw[0] - 10);
+    if (k.m) pp(k.m, cu.meaning, WARM, SAFE.x0 + 10);
+    if (k.p) pp(k.p, cu.ph, PBLUE, SAFE.x0 + 10);
+    if (i < LAY.vocab.length - 1) tube(N, [[SAFE.x0, k.div + 3], [SAFE.x1, k.div - 3]], prog(t, cu.word + .2, .5), BLUE, 6, {});
+  });
+}
+function drawCta(t, sc) {
+  const cu = sc.cue, L = LAY.cta, rep = t < sc.t1, bx = 540, by = L.iconY, bd = L.board;
+  board(ctx, bd.x, bd.y, bd.w, bd.h, '#2a0b17', 46);
+  const ar = [[bx - 64, by], [bx + 64, by], [bx + 64, by + 160], [bx, by + 116], [bx - 64, by + 160], [bx - 64, by]];
+  tube(N, ar, prog(t, cu.icon, .5), PINK, 14, { amp: strikeAmp(t - cu.icon), chase: t > cu.icon + .5 ? t : null });
+  const d1 = cu.text + tlWrite(L.b.text);
+  put(L.b, prog(t, cu.text, tlWrite(L.b.text)), YEL, { t, rep, lineAmp: () => settleAmp(t - d1) });
+  const ye = L.b.y + L.b.h + 26;
+  tube(N, [[540 - L.b.w / 2, ye + 6], [540 + L.b.w / 2, ye - 6]], prog(t, d1, .4), YEL, 8, {});
+  const d2 = cu.handle + tlWrite(L.h.text);
+  put(L.h, prog(t, cu.handle, tlWrite(L.h.text)), AQUA, { t, rep, lineAmp: () => settleAmp(t - d2) });
+}
+const DRAW = { hook: () => {}, wrong: drawWrong, right: drawRight, explain: drawExplain, dialogue: drawDialogue, vocab: drawVocab, cta: drawCta };
+
+// ---------- 전환: 합선 훑기(번개 모양 빛줄기가 훑고 지나가며 옛 간판은 깜박이며 꺼진다) ----------
+const WIPE_BOT = 1560;
+function sweepState(t, sc) {
+  const p = ease((t - sc.t1) / sc.wipe), top = sc.wipeTop || 270;
+  return { front: lerp(-60, W + 140, p), top, bot: WIPE_BOT, p };
+}
+function drawSweep(t, er) {
+  const x = er.front, R = rng(900 + Math.floor(t * 30) * 7), pts = [];
+  for (let y = er.top - 10; y <= er.bot + 10; y += 28) pts.push([x + (R() - .5) * 40, y]);
+  const g = N.createLinearGradient(x - 140, 0, x + 60, 0); g.addColorStop(0, 'rgba(120,160,255,0)'); g.addColorStop(.8, 'rgba(160,190,255,.35)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  N.save(); N.globalCompositeOperation = 'lighter'; N.fillStyle = g; N.fillRect(x - 140, er.top - 10, 200, er.bot - er.top + 20); N.restore();
+  const g0 = GA; GA = 1;
+  tube(N, pts, 1, '#8fb0ff', 11, { ghost: false });
+  for (let k = 0; k < 3; k++) { const b = [], y0 = er.top + R() * (er.bot - er.top); let bxx = x, byy = y0; b.push([bxx, byy]); for (let j = 0; j < 4; j++) { bxx += (R() - .3) * 70; byy += (R() - .5) * 60; b.push([bxx, byy]); } tube(N, b, 1, '#ffffff', 4, { ghost: false, amp: .8 }); }
+  GA = g0;
+}
+
+// ---------- 합성 ----------
+function drawRain(t) {
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+  const R = rng(55);
+  for (let i = 0; i < 80; i++) {
+    const x0 = R() * (W + 300), sp = 1500 + R() * 900, len = 60 + R() * 70, y = ((R() * 2200 + t * sp) % (H + 200)) - 100, x = x0 - y * .13 - 100;
+    ctx.strokeStyle = `rgba(190,210,255,${.07 + .09 * R()})`; ctx.lineWidth = 1.6 + R() * 1.2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - len * .13, y + len); ctx.stroke();
+  }
+  // 길 위 빗방울 파문(1초 안에 사라진다)
+  for (let i = 0; i < 14; i++) {
+    const cyc = 1.1, ph = ((t / cyc + R()) % 1), x = 60 + R() * (W - 120), y = STREET + 40 + R() * 240, r = 6 + ph * 46;
+    ctx.strokeStyle = `rgba(180,200,255,${(1 - ph) * .32})`; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.ellipse(x, y, r, r * .28, 0, 0, 7); ctx.stroke();
+  }
+  ctx.restore();
+}
+function bloom() {
+  gA.clearRect(0, 0, 270, 480); gA.imageSmoothingQuality = 'high'; gA.drawImage(nl, 0, 0, 270, 480);
+  gB.clearRect(0, 0, 68, 120); gB.imageSmoothingQuality = 'high'; gB.filter = 'blur(1.2px)'; gB.drawImage(LA, 0, 0, 68, 120); gB.filter = 'none';
+  gC.clearRect(0, 0, 17, 30); gC.imageSmoothingQuality = 'high'; gC.filter = 'blur(.7px)'; gC.drawImage(LB, 0, 0, 17, 30); gC.filter = 'none';
+  gUB.clearRect(0, 0, 270, 480); gUB.filter = 'blur(2px)'; gUB.drawImage(LB, 0, 0, 270, 480); gUB.filter = 'none';
+  gUC.clearRect(0, 0, 270, 480); gUC.filter = 'blur(6px)'; gUC.drawImage(LC_, 0, 0, 270, 480); gUC.filter = 'none';
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = .3; ctx.drawImage(LA, 0, 0, W, H);          // 튜브 바로 옆 후광
+  ctx.globalAlpha = .7; ctx.drawImage(UB, 0, 0, W, H);          // 벽·판에 번지는 빛
+  ctx.globalAlpha = .9; ctx.drawImage(UC, 0, 0, W, H);          // 넓은 색조
+  ctx.restore();
+}
+function reflection(t) {      // 젖은 길: 간판 빛이 아래로 번져 비친다(수면 출렁임)
+  ctx.save(); ctx.beginPath(); ctx.rect(0, STREET + 8, W, H - STREET - 8); ctx.clip(); ctx.globalCompositeOperation = 'lighter';
+  const k = .34, strips = 36, sh = (H - STREET) / strips;
+  for (let i = 0; i < strips; i++) {
+    const y = STREET + 8 + i * sh, off = Math.sin(y * .09 + t * 2.4) * (3 + i * .25), sy = (STREET - (y - STREET) / k) / H * 480;     // 길 y → 원본(A) y
+    ctx.globalAlpha = .5 * (1 - i / strips * .65);
+    ctx.drawImage(LA, 0, sy - 1.5, 270, 3, off, y, W, sh);          // 길 y마다 거울상 원본 행을 가져온다
+  }
+  ctx.restore();
+}
+function render(t) {
+  TX = [];
+  if (!tl) return;
+  const sc = tl.scenes;
+  MS = 1 + .03 * Math.sin(t * 47.3 + Math.sin(t * 11) * 2);
+  GA = 1;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; ctx.drawImage(bg, 0, 0);
+  N.setTransform(1, 0, 0, 1, 0, 0); N.globalCompositeOperation = 'source-over'; N.globalAlpha = 1; N.clearRect(0, 0, W, H);
+  S.setTransform(1, 0, 0, 1, 0, 0); S.globalCompositeOperation = 'source-over'; S.globalAlpha = 1; S.clearRect(0, 0, W, H);
+  let i = 0; for (let k = 0; k < sc.length; k++) if (sc[k].t0 <= t) i = k;
+  const cur = sc[i], prev = i > 0 ? sc[i - 1] : null, hk = tl.by.hook;
+  const wiping = !!(prev && prev.wipe && t >= prev.t1 && t < prev.t1 + prev.wipe);
+  const er = wiping ? sweepState(t, prev) : null;
+  const titleOn = t < hk.titleUntil, titleWipe = wiping && prev.id === 'right';
+  const region = (x, y, w, h) => { for (const c of [ctx, N, S]) { c.save(); c.beginPath(); c.rect(0, 0, W, H); c.rect(x, y, w, h); c.clip('evenodd'); } };
+  const end = () => { ctx.restore(); N.restore(); S.restore(); };
+  if (wiping) {
+    region(0, er.top, Math.max(0, er.front - 30), er.bot - er.top);        // 합선 선 오른쪽 = 아직 안 꺼진 옛 장면(깜박임)
+    GA = (rng(Math.floor(t * 24) * 17 + 3)() < .35 ? .35 : 1) * (1 - .5 * er.p);
+    DRAW[prev.id](t, prev); if (titleWipe) drawHook(t); end(); GA = 1;
+    region(er.front - 30, er.top, W, er.bot - er.top);                     // 왼쪽 = 새 장면
+    DRAW[cur.id](t, cur); end();
+    if (titleOn && !titleWipe) drawHook(t);
+    drawSweep(t, er);
+  } else {
+    if (titleOn) drawHook(t);
+    DRAW[cur.id](t, cur);
+  }
+  bloom(); ctx.drawImage(nl, 0, 0);      // 빛은 벽·판에만 번지고 튜브는 그 위에 또렷이
+  ctx.drawImage(sl, 0, 0);               // 작은 글씨는 블룸·반사와 무관하게 맨 위에 선명하게
+  reflection(t); drawRain(t);
+  // 훅의 점등 순간 번쩍(온 거리에 빛이 퍼진다)
+  const fl = .22 * Math.exp(-t * 14) + (t > .16 ? .3 * Math.exp(-(t - .16) * 9) : 0) + (t > .36 ? .3 * Math.exp(-(t - .36) * 10) : 0);
+  if (fl > .01) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = `rgba(255,70,160,${Math.min(.5, fl)})`; ctx.fillRect(0, 0, W, H); ctx.restore(); }
+  ctx.drawImage(vig, 0, 0);
+}
+
+window.DUR = 1; window.EV = [];
+window.render = render;
+window.TEXTS = () => LC.texts(TX);
+// 검수용(선택): 네온 레이어에서 y 300~1500에 켜진 픽셀 수(빈 화면 구간 검사)
+window.NEONPIX = () => { const d = N.getImageData(0, 300, W, 1200).data; let n = 0; for (let i = 3; i < d.length; i += 64) if (d[i] > 100) n++; return n; };
+(async function init() {
+  try {
+    const { input, dur, opts } = await LC.load();
+    LANG = input.lang;
+    tl = LC.buildAuto(input, dur, opts);
+    window.DUR = tl.DUR; window.EV = tl.EV;
+    const sample = [tl.C.hook, tl.C.wrong, tl.C.right, tl.C.explain, tl.C.cta, tl.C.rightKo, tl.C.rightPh, tl.C.roman, ...tl.C.vocab.flatMap(v => [v.word, v.meaning, v.phonetic, v.type]),
+      ...tl.C.dialogue.flatMap(d => [d.line, d.ph, d.ko]), '@langcard.studio 0123456789'].join(' ');
+    await Promise.all(['LCKR', 'LCJP', 'LCSC', 'Fredoka'].map(f => document.fonts.load(`700 40px ${f}`, sample)));
+    await document.fonts.ready;
+    bg = makeBg(); vig = makeVig();
+    layout();
+    window.READY = true;
+  } catch (e) { console.error('init failed', e); throw e; }
+})();
+</script></body></html>
