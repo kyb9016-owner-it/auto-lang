@@ -30,7 +30,7 @@ def run(step, cmd, cwd=None, env=None, timeout=1800):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('queue'); ap.add_argument('--style', default='chalkboard'); ap.add_argument('--out', required=True)
-    ap.add_argument('--pace', default='strict', choices=['strict', 'fast']); ap.add_argument('--keep-work', action='store_true')
+    ap.add_argument('--pace', default='fast', choices=['strict', 'fast']); ap.add_argument('--keep-work', action='store_true')
     ap.add_argument('--workers', type=int, default=3)
     a = ap.parse_args()
     if not os.path.isdir(LIB) or not os.path.exists(PY): die(f'lemo-opuscar를 찾을 수 없음: {LIB} (LEMO_LIB 환경변수로 지정)')

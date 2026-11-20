@@ -11,12 +11,13 @@ canvas{display:block}
 </style></head>
 <body><canvas id="c"></canvas>
 <script src="common/timeline.js"></script>
+<script src="common/layout.js"></script>
 <script>
 // ===== LangCard / Chalkboard 스타일 — 1080x1920, 결정적 render(t) =====
 // 분필 글씨는 폰트 글리프를 슬라이스 클립으로 "써 내려가고", 전체 레이어에 분필 입자(destination-out)를 입힌다.
 // (STYLE.md의 획순 엔진은 쓰지 않음 — 한글·일본어·중국어 전 글자의 획 데이터가 없으므로. README의 한계 참조)
 const W = 1080, H = 1920;
-const SAFE = { x0: 80, x1: 1000, y0: 280, y1: 1230 };   // 글자는 이 안에만 (좌우 여백 80)
+const SAFE = LCL.SAFE;   // x 80~1000, y 300~1480 (common/layout.js)
 const cv = document.getElementById('c'); cv.width = W; cv.height = H;
 const ctx = cv.getContext('2d');
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
@@ -39,61 +40,8 @@ let bg = null, grain = null;
 const STACK = { ko: 'Fredoka, LCKR, LCJP, LCSC, sans-serif', tg: null };
 const fontStr = (kind, size) => `700 ${size}px ${STACK[kind]}`;
 
-// ---------- 줄바꿈: 라틴·한글은 단어 단위, 일본어·중국어는 글자 단위. 문장부호는 앞 토큰에 붙인다 ----------
-const CJK_RE = /[぀-ヿ㐀-鿿＀-￯]/u;
-const PUNCT_RE = /^[。、，．！？）」』】,.!?:;)”’…~]+$/u;
-function tokens(s) {
-  const out = [], re = /[぀-ヿ㐀-鿿＀-￯]|[^\s぀-ヿ㐀-鿿＀-￯]+|\s+/gu;
-  let m;
-  while ((m = re.exec(s))) {
-    const tk = m[0];
-    if (/^\s+$/.test(tk)) { out.push({ sp: true }); continue; }
-    if (PUNCT_RE.test(tk) && out.length && !out[out.length - 1].sp) { out[out.length - 1].t += tk; continue; }
-    out.push({ t: tk, cjk: CJK_RE.test(tk) && tk.length === 1 });
-  }
-  return out;
-}
-function wrap(text, maxW) {   // 현재 ctx.font 기준
-  const tks = tokens(text), lines = []; let line = '', pendSp = false;
-  const wd = s => cx2.measureText(s).width;
-  for (const tk of tks) {
-    if (tk.sp) { pendSp = line !== ''; continue; }
-    const sep = pendSp && !tk.cjk ? ' ' : (pendSp ? ' ' : '');
-    const cand = line + sep + tk.t;
-    if (line === '' || wd(cand) <= maxW) { line = cand; }
-    else { lines.push(line); line = tk.t; }
-    pendSp = false;
-    // 한 토큰이 maxW보다 길면 글자 단위로 쪼갠다
-    while (wd(line) > maxW && [...line].length > 1) {
-      let cut = [...line]; let head = '';
-      for (const ch of cut) { if (wd(head + ch) > maxW && head) break; head += ch; }
-      lines.push(head); line = line.slice(head.length);
-    }
-  }
-  if (line) lines.push(line);
-  return lines;
-}
-// 크기 자동 축소: s0에서 시작해 줄 수·폭이 맞을 때까지 2px씩 줄인다(측정 기반)
-function fit(text, kind, o) {
-  const lh = o.lh || 1.28; let size = Math.round(o.s0);
-  for (;;) {
-    cx2.font = fontStr(kind, size);
-    const lines = wrap(text, o.maxW);
-    const lw = lines.map(l => cx2.measureText(l).width), w = Math.max(...lw, 1);
-    if ((lines.length <= o.maxLines && w <= o.maxW + .5) || size <= Math.round(o.s1)) {
-      return { text, kind, size, lines, lw, w, lhp: size * lh, h: lines.length * size * lh };
-    }
-    size -= 2;
-  }
-}
-// 세로 쌓기: 전체가 y1을 넘으면 배율 k를 줄여 다시 맞춘다
-function stack(items, y0, y1, maxW) {
-  for (let k = 1; k > .3; k -= .06) {
-    const bl = items.filter(it => it.text).map(it => Object.assign({ it }, fit(it.text, it.kind, { maxW: it.maxW || maxW, maxLines: it.maxLines, s0: it.s0 * k, s1: it.s1 * k, lh: it.lh })));
-    let y = y0; bl.forEach((b, i) => { y += (i ? bl[i].it.gap || 30 : 0) * k; b.y = y; y += b.h; });
-    if (y <= y1 || k <= .35) return bl.map(b => Object.assign(b, { id: b.it.id, color: b.it.color, cx: 540 }));
-  }
-}
+// ---------- 줄바꿈·자동 축소·쌓기·말풍선 배치는 common/layout.js (LCL.make) ----------
+let LX = null;
 
 // ---------- 분필 입자·획 ----------
 function makeGrain() {
@@ -199,67 +147,55 @@ function put(c, B, p, color, o) {
 const prog = (t, a, d) => clamp((t - a) / d);
 
 // ---------- 레이아웃(폰트 로드 후 1회) ----------
+const YC = 890;                                       // 콘텐츠 세로 중심(칠판 가운데). 글자는 y 300~1480 안
 function layout() {
-  const C = tl.C, L = {};
+  const C = tl.C, L = {}, M = LCL.MIN, SF = LCL.SAFE;
   STACK.tg = LANG === 'ja' ? 'Fredoka, LCJP, LCKR, sans-serif' : LANG === 'zh' ? 'Fredoka, LCSC, LCKR, sans-serif' : 'Fredoka, LCKR, sans-serif';
-  // 훅: 가운데 크게, 이후 같은 줄바꿈 그대로 줄어 제목이 된다
-  const hb = fit(C.hook, 'ko', { maxW: 880, maxLines: 3, s0: 124, s1: 60, lh: 1.25 });
-  hb.id = 'hook'; hb.cx = 540; hb.y = 745 - hb.h / 2;
-  const f = Math.min(.62, 920 / hb.w, 170 / hb.h);
+  LX = LCL.make(cx2, fontStr);
+  // 훅: 처음 2초 화면 가득(≥110px). 같은 줄바꿈 그대로 52px 제목으로 줄어 위에 남는다
+  let hb = LX.fit(C.hook, 'ko', { maxW: 900, maxLines: 3, s0: 150, s1: M.hook, lh: 1.22 });
+  if (hb.lines.length > 3 || hb.w > 901) hb = LX.fit(C.hook, 'ko', { maxW: 900, maxLines: 4, s0: M.hook, s1: 80, lh: 1.22 });
+  hb.id = 'hook'; hb.cx = 540; hb.y = YC - 20 - hb.h / 2;
+  const f = Math.min(1, M.title / hb.size);
   L.hook = { B: hb, f, cy: hb.y + hb.h / 2, titleTop: 292 };
-  // WRONG / RIGHT: 같은 자리에 쓴다(쓰고 → 지우고 → 같은 자리에 다시)
-  const mw = 880, y0 = 690, y1 = 1230;
-  L.wrong = { cy: 566, items: stack([
-    { id: 'wrong', text: C.wrong, kind: 'tg', s0: 88, s1: 40, maxLines: 3, color: WHITE, lh: 1.25 },
-    { id: 'wrongPh', text: C.wrongPh, kind: 'ko', s0: 50, s1: 30, maxLines: 2, color: PALE, gap: 36, lh: 1.3 }], y0, y1, mw) };
-  L.right = { cy: 566, items: stack([
-    { id: 'right', text: C.right, kind: 'tg', s0: 88, s1: 40, maxLines: 3, color: YELLOW, lh: 1.25 },
-    { id: 'rightPh', text: C.rightPh, kind: 'ko', s0: 50, s1: 30, maxLines: 2, color: PALE, gap: 34, lh: 1.3 },
-    { id: 'roman', text: C.roman, kind: 'tg', s0: 44, s1: 28, maxLines: 2, color: PALE, gap: 18, lh: 1.25 },
-    { id: 'rightKo', text: C.rightKo, kind: 'ko', s0: 56, s1: 30, maxLines: 3, color: WHITE, gap: 40, lh: 1.32 }], y0, y1, mw) };
-  // EXPLAIN: 가운데 정렬 박스
-  { const b = fit(C.explain || ' ', 'ko', { maxW: 800, maxLines: 9, s0: 66, s1: 34, lh: 1.42 });
-    b.id = 'explain'; b.cx = 540; b.y = 755 - b.h / 2; b.color = WHITE;
-    L.explain = { B: b, box: [540 - b.w / 2 - 50, b.y - 50, b.w + 100, b.h + 100] }; }
-  // DIALOGUE: 말풍선 높이 합이 영역을 넘으면 글자 배율을 낮춰 다시
-  { const Y0 = 300, Y1 = 1225, n = C.dialogue.length, PADX = 30, PADY = 22, GAPB = 34;
-    let k = 1, res;
-    for (; k > .35; k -= .05) {
-      const innerW = 700 * 1;
-      res = C.dialogue.map((t, i) => {
-        const a = fit(t.line, 'tg', { maxW: innerW, maxLines: 2, s0: 52 * k, s1: 26 * k, lh: 1.22 });
-        const b = t.ph ? fit(t.ph, 'ko', { maxW: innerW, maxLines: 2, s0: 36 * k, s1: 20 * k, lh: 1.25 }) : null;
-        const c = t.ko ? fit(t.ko, 'ko', { maxW: innerW, maxLines: 2, s0: 38 * k, s1: 20 * k, lh: 1.25 }) : null;
-        const parts = [a, b, c].filter(Boolean);
-        const w = Math.max(...parts.map(p => p.w)) + PADX * 2, h = parts.reduce((s, p) => s + p.h, 0) + (parts.length - 1) * 8 * k + PADY * 2;
-        return { a, b, c, w: Math.max(w, 360 * k), h, side: i % 2 === 0 ? 'L' : 'R' };
-      });
-      const tot = res.reduce((s, r) => s + r.h, 0) + (n - 1) * GAPB * k + 30;
-      if (tot <= Y1 - Y0) break;
-    }
-    let y = Y0 + 4;
-    res.forEach((r, i) => {
-      r.x = r.side === 'L' ? SAFE.x0 : SAFE.x1 - r.w; r.y = y; y += r.h + GAPB * k;
-      let yy = r.y + PADY; const ccx = r.x + r.w / 2;
-      [['a', 'd' + i + 'l', WHITE], ['b', 'd' + i + 'p', PALE], ['c', 'd' + i + 'k', WHITE]].forEach(([key, id, col]) => {
-        const p = r[key]; if (!p) return; p.id = id; p.cx = ccx; p.y = yy; p.color = (key === 'a' && i === C.hl) ? YELLOW : col; yy += p.h + 8 * k;
-      });
-    });
-    L.dialogue = res; }
-  // VOCAB: 카드 3장 세로
+  const titleBottom = 292 + f * hb.h;
+  // WRONG / RIGHT: 같은 자리에 쓴다(쓰고 → 지우고 → 같은 자리에 다시). 제목 아래에서 시작해 y 1480까지
+  const iconCy = titleBottom + 85, y0 = iconCy + 95, y1 = SF.bottom, mw = 900;
+  L.wrong = { cy: iconCy, items: LX.stack([
+    { id: 'wrong', text: C.wrong, kind: 'tg', s0: 130, s1: M.body, maxLines: 3, color: WHITE, lh: 1.22 },
+    { id: 'wrongPh', text: C.wrongPh, kind: 'ko', s0: 68, s1: 40, maxLines: 2, color: PALE, gap: 44, lh: 1.28 }], y0, y1, mw) };
+  L.right = { cy: iconCy, items: LX.stack([
+    { id: 'right', text: C.right, kind: 'tg', s0: 130, s1: M.body, maxLines: 3, color: YELLOW, lh: 1.22 },
+    { id: 'rightPh', text: C.rightPh, kind: 'ko', s0: 64, s1: 40, maxLines: 2, color: PALE, gap: 36, lh: 1.28 },
+    { id: 'roman', text: C.roman, kind: 'tg', s0: 56, s1: 36, maxLines: 2, color: PALE, gap: 14, lh: 1.25 },
+    { id: 'rightKo', text: C.rightKo, kind: 'ko', s0: 70, s1: 44, maxLines: 3, color: WHITE, gap: 46, lh: 1.3 }], y0, y1, mw) };
+  // EXPLAIN: 한 줄 요약, 박스 안
+  if (C.explain) {
+    const b = LX.fit(C.explain, 'ko', { maxW: 780, maxLines: 5, s0: 104, s1: 60, lh: 1.36 });
+    b.id = 'explain'; b.cx = 540; b.y = YC - b.h / 2; b.color = WHITE;
+    L.explain = { B: b, box: [540 - b.w / 2 - 56, b.y - 60, b.w + 112, b.h + 120] };
+  }
+  // DIALOGUE: 2턴, 말풍선 공통 계산
+  L.dialogue = LX.dialogue(C.dialogue, { y0: SF.top + 20, y1: SF.bottom, gap: 70 });
+  L.dialogue.forEach((r, i) => { [r.a, r.b, r.c].forEach((p, k) => { if (p) p.color = (k === 0 && i === C.hl) ? YELLOW : (k === 1 ? PALE : WHITE); }); });
+  // VOCAB: 카드 2장(세로 가운데)
   { const cards = C.vocab.map((v, i) => {
-      const top = 330 + i * 300;
-      const w = fit(v.word, 'tg', { maxW: 600, maxLines: 1, s0: 92, s1: 40, lh: 1.2 }); w.id = 'v' + i + 'w'; w.y = top; w.color = YELLOW;
-      const ty = v.type ? fit(v.type, 'ko', { maxW: 220, maxLines: 1, s0: 36, s1: 24, lh: 1.2 }) : null; if (ty) { ty.id = 'v' + i + 't'; ty.color = PALE; }
-      const m = v.meaning ? fit(v.meaning, 'ko', { maxW: 880, maxLines: 2, s0: 50, s1: 28, lh: 1.3 }) : null; if (m) { m.id = 'v' + i + 'm'; m.y = top + 118; m.color = WHITE; }
-      const p = v.phonetic ? fit(v.phonetic, 'ko', { maxW: 880, maxLines: 1, s0: 38, s1: 24, lh: 1.25 }) : null; if (p) { p.id = 'v' + i + 'p'; p.y = top + 118 + (m ? m.h : 0) + 6; p.color = PALE; }
-      if (ty) ty.y = top + (w.h - ty.h) / 2 + 6;
-      return { top, w, ty, m, p };
-    }); L.vocab = cards; }
+      const w = LX.fit(v.word, 'tg', { maxW: 640, maxLines: 1, s0: 140, s1: 72, lh: 1.15 }); w.id = 'v' + i + 'w'; w.color = YELLOW;
+      const ty = v.type ? LX.fit(v.type, 'ko', { maxW: 230, maxLines: 1, s0: 44, s1: 32, lh: 1.2 }) : null; if (ty) { ty.id = 'v' + i + 't'; ty.color = PALE; }
+      const m = v.meaning ? LX.fit(v.meaning, 'ko', { maxW: 900, maxLines: 2, s0: 66, s1: 44, lh: 1.28 }) : null; if (m) { m.id = 'v' + i + 'm'; m.color = WHITE; }
+      const p = v.phonetic ? LX.fit(v.phonetic, 'ko', { maxW: 900, maxLines: 1, s0: 54, s1: 38, lh: 1.25 }) : null; if (p) { p.id = 'v' + i + 'p'; p.color = PALE; }
+      const h = w.h + 16 + (m ? m.h : 0) + (p ? p.h + 6 : 0);
+      return { w, ty, m, p, h };
+    });
+    const GAPC = 90, tot = cards.reduce((s, c) => s + c.h, 0) + GAPC * (cards.length - 1);
+    let y = YC - tot / 2;
+    cards.forEach(k => { k.top = y; k.w.y = y; let yy = y + k.w.h + 16; if (k.ty) k.ty.y = y + (k.w.h - k.ty.h) / 2 + 8; if (k.m) { k.m.y = yy; yy += k.m.h; } if (k.p) k.p.y = yy + 6; k.div = y + k.h + GAPC / 2; y += k.h + GAPC; });
+    L.vocab = cards; }
   // CTA
-  { const b = fit(C.cta || C.handle, 'ko', { maxW: 880, maxLines: 4, s0: 80, s1: 40, lh: 1.3 }); b.id = 'cta'; b.cx = 540; b.y = 640; b.color = YELLOW;
-    const h = fit(C.handle, 'ko', { maxW: 880, maxLines: 1, s0: 74, s1: 40, lh: 1.2 }); h.id = 'handle'; h.cx = 540; h.y = Math.max(b.y + b.h + 90, 960); h.color = WHITE;
-    L.cta = { b, h }; }
+  { const b = LX.fit(C.cta || C.handle, 'ko', { maxW: 900, maxLines: 4, s0: 108, s1: 60, lh: 1.28 }); b.id = 'cta'; b.cx = 540; b.color = YELLOW;
+    const h = LX.fit(C.handle, 'ko', { maxW: 900, maxLines: 1, s0: 92, s1: 48, lh: 1.2 }); h.id = 'handle'; h.cx = 540; h.color = WHITE;
+    const tot = 180 + 60 + b.h + 40 + 110 + h.h; let y = YC - tot / 2;
+    L.cta = { iconY: y, b, h }; b.y = y + 180 + 60; h.y = b.y + b.h + 40 + 110; }
   LAY = L;
 }
 
@@ -275,13 +211,11 @@ function drawHook(c, t) {
   c.save();
   c.translate(tx + Math.sin(t * 95) * 9 * shake, ty + Math.cos(t * 83) * 6 * shake); c.scale(sc, sc); c.translate(-540, -L.cy);
   put(c, B, 1, WHITE, { t, rep: true });
-  // 노란 지그재그 밑줄(.3~.85초에 휙)
-  const u = B.y + B.h + 8, zz = [], n = 9, ww = B.w * .5;
+  const u = B.y + B.h + 8, zz = [], n = 9, ww = B.w * .5;     // 노란 지그재그 밑줄(.3~.85초에 휙)
   for (let i = 0; i <= n; i++) zz.push([540 - ww + (2 * ww) * i / n, u + (i % 2 ? 14 : -4)]);
-  poly(c, zz, prog(t, .3, .55), 11, YELLOW, 11);
+  poly(c, zz, prog(t, .3, .55), 12, YELLOW, 11);
   c.restore();
-  // 쾅 하는 순간(0.16초) 분필 가루가 사방으로
-  const age = t - .16;
+  const age = t - .16;      // 쾅 하는 순간 분필 가루
   if (age > 0 && age < .7) {
     const R = rng(4242); c.save(); c.fillStyle = WHITE;
     for (let i = 0; i < 46; i++) {
@@ -292,19 +226,18 @@ function drawHook(c, t) {
   }
 }
 function iconCross(c, cy, p) {
-  poly(c, [[490, cy - 50], [590, cy + 50]], prog(p, 0, .5), 20, RED, 3);
-  poly(c, [[590, cy - 50], [490, cy + 50]], prog(p, .45, .55), 20, RED, 4);
+  poly(c, [[484, cy - 56], [596, cy + 56]], prog(p, 0, .5), 22, RED, 3);
+  poly(c, [[596, cy - 56], [484, cy + 56]], prog(p, .45, .55), 22, RED, 4);
 }
-function iconCheck(c, cy, p) { poly(c, [[478, cy], [525, cy + 52], [610, cy - 52]], prog(p, 0, 1), 22, YELLOW, 5); }
+function iconCheck(c, cy, p) { poly(c, [[472, cy], [524, cy + 58], [616, cy - 58]], prog(p, 0, 1), 24, YELLOW, 5); }
 function drawWrong(c, t, sc) {
   const cu = sc.cue, L = LAY.wrong, rep = t < sc.t1;
   iconCross(c, L.cy, (t - cu.icon) / .45);
   L.items.forEach(B => {
-    const st = B.id === 'wrong' ? cu.text : cu.ph;
-    put(c, B, prog(t, st, tlWrite(B.text)), B.color, { t, rep });
+    put(c, B, prog(t, B.id === 'wrong' ? cu.text : cu.ph, tlWrite(B.text)), B.color, { t, rep });
     if (B.id === 'wrong' && t > cu.strike) {     // 음성이 끝나면 오답 줄에 붉은 분필로 긋기
       B.lines.forEach((ln, i) => { const lx = B.cx - B.lw[i] / 2, my = B.y + i * B.lhp + B.lhp * .52;
-        poly(c, [[lx - 16, my + 6], [lx + B.lw[i] + 16, my - 8]], prog(t, cu.strike + i * .15, .3), 13, RED, 20 + i); });
+        poly(c, [[lx - 16, my + 6], [lx + B.lw[i] + 16, my - 8]], prog(t, cu.strike + i * .15, .3), 14, RED, 20 + i); });
     }
   });
 }
@@ -312,22 +245,21 @@ function drawRight(c, t, sc) {
   const cu = sc.cue, L = LAY.right, rep = t < sc.t1, st = { right: cu.text, rightPh: cu.ph, roman: cu.roman, rightKo: cu.ko };
   iconCheck(c, L.cy, (t - cu.icon) / .45);
   L.items.forEach(B => put(c, B, prog(t, st[B.id], tlWrite(B.text)), B.color, { t, rep }));
-  // 정답 줄 아래 노란 밑줄
-  const R = L.items[0]; if (R && t > cu.text + tlWrite(R.text)) {
+  const R = L.items[0]; if (R && t > cu.text + tlWrite(R.text)) {      // 정답 줄 아래 노란 밑줄
     const last = R.lines.length - 1, lx = R.cx - R.lw[last] / 2, uy = R.y + R.h - R.lhp * .08;
-    poly(c, [[lx, uy + 4], [lx + R.lw[last], uy - 3]], prog(t, cu.text + tlWrite(R.text), .35), 8, YELLOW, 33);
+    poly(c, [[lx, uy + 4], [lx + R.lw[last], uy - 3]], prog(t, cu.text + tlWrite(R.text), .35), 9, YELLOW, 33);
   }
 }
 function drawExplain(c, t, sc) {
   const cu = sc.cue, L = LAY.explain, rep = t < sc.t1, [bx, by, bw, bh] = L.box;
-  poly(c, rrPts(bx, by, bw, bh, 34), prog(t, cu.box, .7), 6, PALE, 41);
+  poly(c, rrPts(bx, by, bw, bh, 38), prog(t, cu.box, .6), 7, PALE, 41);
   put(c, L.B, prog(t, cu.text, tlWrite(L.B.text)), WHITE, { t, rep });
 }
 function bubble(c, t, r, cu, i) {
-  const hl = i === tl.C.hl, p = (t - cu.bubble) / .45;
-  poly(c, rrPts(r.x, r.y, r.w, r.h, 30), prog(p, 0, 1), hl ? 8 : 5, hl ? YELLOW : WHITE, 60 + i);
-  const ty = r.side === 'L' ? [[r.x + 60, r.y + r.h - 1], [r.x + 32, r.y + r.h + 26], [r.x + 112, r.y + r.h - 1]] : [[r.x + r.w - 60, r.y + r.h - 1], [r.x + r.w - 32, r.y + r.h + 26], [r.x + r.w - 112, r.y + r.h - 1]];
-  poly(c, ty, prog(p, .8, .2), hl ? 8 : 5, hl ? YELLOW : WHITE, 70 + i);
+  const hl = i === tl.C.hl, p = (t - cu.bubble) / .4;
+  poly(c, rrPts(r.x, r.y, r.w, r.h, 34), prog(p, 0, 1), hl ? 9 : 6, hl ? YELLOW : WHITE, 60 + i);
+  const ty = r.side === 'L' ? [[r.x + 64, r.y + r.h - 1], [r.x + 34, r.y + r.h + 30], [r.x + 124, r.y + r.h - 1]] : [[r.x + r.w - 64, r.y + r.h - 1], [r.x + r.w - 34, r.y + r.h + 30], [r.x + r.w - 124, r.y + r.h - 1]];
+  poly(c, ty, prog(p, .8, .2), hl ? 9 : 6, hl ? YELLOW : WHITE, 70 + i);
 }
 function drawDialogue(c, t, sc) {
   const rep = t < sc.t1;
@@ -341,74 +273,71 @@ function drawVocab(c, t, sc) {
   const rep = t < sc.t1;
   LAY.vocab.forEach((k, i) => {
     const cu = sc.cue.cards[i]; if (t < cu.word) return;
-    const w = k.w; w.cx = 540; 
-    // 단어는 왼쪽 정렬로 쓴다
-    put(c, w, prog(t, cu.word, tlWrite(w.text)), YELLOW, { t, rep, left: SAFE.x0 + 10 });
+    put(c, k.w, prog(t, cu.word, tlWrite(k.w.text)), YELLOW, { t, rep, left: SAFE.x0 + 10 });
     if (k.ty) put(c, Object.assign(k.ty, { cx: 0 }), prog(t, cu.type, tlWrite(k.ty.text)), PALE, { t, rep, left: SAFE.x1 - k.ty.lw[0] - 10 });
     if (k.m) put(c, k.m, prog(t, cu.meaning, tlWrite(k.m.text)), WHITE, { t, rep, left: SAFE.x0 + 10 });
     if (k.p) put(c, k.p, prog(t, cu.ph, tlWrite(k.p.text)), PALE, { t, rep, left: SAFE.x0 + 10 });
-    poly(c, [[SAFE.x0, k.top + 262], [SAFE.x1, k.top + 258]], prog(t, cu.word + .2, .5), 4, PALE, 90 + i);
+    if (i < LAY.vocab.length - 1) poly(c, [[SAFE.x0, k.div + 3], [SAFE.x1, k.div - 3]], prog(t, cu.word + .2, .5), 4, PALE, 90 + i);
   });
 }
 function drawCta(c, t, sc) {
-  const cu = sc.cue, L = LAY.cta, rep = t < sc.t1;
-  // 북마크(저장) 아이콘
-  const bx = 540, by = 330;
-  poly(c, [[bx - 60, by], [bx + 60, by], [bx + 60, by + 150], [bx, by + 108], [bx - 60, by + 150], [bx - 60, by]], prog(t, cu.icon, .7), 13, YELLOW, 8);
+  const cu = sc.cue, L = LAY.cta, rep = t < sc.t1, bx = 540, by = L.iconY;
+  poly(c, [[bx - 64, by], [bx + 64, by], [bx + 64, by + 160], [bx, by + 116], [bx - 64, by + 160], [bx - 64, by]], prog(t, cu.icon, .6), 14, YELLOW, 8);
   put(c, L.b, prog(t, cu.text, tlWrite(L.b.text)), YELLOW, { t, rep });
-  const ye = L.b.y + L.b.h + 24;
-  poly(c, [[540 - L.b.w / 2, ye + 6], [540 + L.b.w / 2, ye - 6]], prog(t, cu.text + tlWrite(L.b.text), .4), 8, YELLOW, 15);
+  const ye = L.b.y + L.b.h + 26;
+  poly(c, [[540 - L.b.w / 2, ye + 6], [540 + L.b.w / 2, ye - 6]], prog(t, cu.text + tlWrite(L.b.text), .4), 9, YELLOW, 15);
   put(c, L.h, prog(t, cu.handle, tlWrite(L.h.text)), WHITE, { t, rep });
 }
 const tlWrite = tx => LC.writeDur(tx);
+const DRAW = { hook: () => {}, wrong: drawWrong, right: drawRight, explain: drawExplain, dialogue: drawDialogue, vocab: drawVocab, cta: drawCta };
 
 // ---------- 지우개 ----------
+const WIPE_BOT = 1560;
 function eraser(t, sc) {
-  const p = ease((t - sc.t1) / tl.WIPE), top = sc.wipeTop || SAFE.y0 - 20, bot = 1250;
-  const front = lerp(-60, W + 140, p);
-  return { front, top, bot, p };
+  const p = ease((t - sc.t1) / sc.wipe), top = sc.wipeTop || 270;
+  return { front: lerp(-60, W + 140, p), top, bot: WIPE_BOT, p };
 }
 function drawEraserSprite(g, e) {
   const x = e.front, y0 = e.top - 20, h = e.bot - e.top + 40, w = 150;
   g.save();
-  g.fillStyle = '#1b1b1b'; g.fillRect(x - w, y0, w, h);                 // 펠트 면
+  g.fillStyle = '#1b1b1b'; g.fillRect(x - w, y0, w, h);
   const wg = g.createLinearGradient(x - w - 60, 0, x - w, 0); wg.addColorStop(0, '#9a7143'); wg.addColorStop(1, '#7b5630');
-  g.fillStyle = wg; g.fillRect(x - w - 70, y0, 70, h);                    // 나무 등
+  g.fillStyle = wg; g.fillRect(x - w - 70, y0, 70, h);
   g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(x - w - 70, y0, 70, 6);
   g.fillStyle = 'rgba(243,241,231,.35)'; for (let i = 0; i < 40; i++) { const r = rng(i * 13 + 5); g.fillRect(x - w + 6 + r() * 130, y0 + r() * h, 2 + r() * 3, 1 + r() * 2); }
   g.restore();
 }
 
 // ---------- 합성 ----------
+// 장면 전환: 지우개가 prev.t1~prev.t1+WIPE에 훑고 지나가며, 새 장면은 이미 시작되어 지나간 자리(왼쪽)에 바로 쓰인다.
 function render(t) {
   TX = [];
   if (!tl) return;
   const sc = tl.scenes;
   ctx.drawImage(bg, 0, 0);
   const c = cx2; c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, W, H);
-  // 활성 장면
-  let i = sc.findIndex(s => t >= s.t0 && t < s.t1 + (s.wipe || 0));
-  if (i < 0) i = t < 0 ? 0 : sc.length - 1;
-  const cur = sc[i], wiping = t >= cur.t1 && cur.wipe;
-  let er = null;
-  c.save();
+  let i = 0; for (let k = 0; k < sc.length; k++) if (sc[k].t0 <= t) i = k;
+  const cur = sc[i], prev = i > 0 ? sc[i - 1] : null, hk = tl.by.hook;
+  const wiping = !!(prev && prev.wipe && t >= prev.t1 && t < prev.t1 + prev.wipe);
+  const er = wiping ? eraser(t, prev) : null;
+  const titleOn = t < hk.titleUntil, titleWipe = wiping && prev.id === 'right';
+  const region = (x, y, w, h) => { c.beginPath(); c.rect(0, 0, W, H); c.rect(x, y, w, h); c.clip('evenodd'); };
   if (wiping) {
-    er = eraser(t, cur);
-    c.beginPath(); c.rect(0, 0, W, H); c.rect(0, er.top, Math.max(0, er.front - 30), er.bot - er.top); c.clip('evenodd');
+    c.save(); region(0, er.top, Math.max(0, er.front - 30), er.bot - er.top);          // 지우개 오른쪽 = 아직 안 지워진 옛 장면
+    DRAW[prev.id](c, t, prev); if (titleWipe) drawHook(c, t); c.restore();
+    c.save(); region(er.front - 30, er.top, W, er.bot - er.top);                        // 지우개 왼쪽 = 새 장면
+    DRAW[cur.id](c, t, cur); c.restore();
+    if (titleOn && !titleWipe) drawHook(c, t);
+  } else {
+    if (titleOn) drawHook(c, t);
+    DRAW[cur.id](c, t, cur);
   }
-  const hk = tl.by.hook;
-  if (t < hk.titleUntil + (cur.id === 'right' && wiping ? tl.WIPE : 0)) drawHook(c, t);
-  ({ hook: () => {}, wrong: () => drawWrong(c, t, cur), right: () => drawRight(c, t, cur), explain: () => drawExplain(c, t, cur),
-     dialogue: () => drawDialogue(c, t, cur), vocab: () => drawVocab(c, t, cur), cta: () => drawCta(c, t, cur) })[cur.id]();
-  c.restore();
   // 분필 입자: 큰 얼룩 + 고운 알갱이를 뚫어 거친 분필 질감
   c.globalCompositeOperation = 'destination-out';
   c.fillStyle = grain.blot; c.fillRect(0, 0, W, H);
-  c.save(); c.translate(((t * 0) | 0), 0); c.fillStyle = grain.fine; c.globalAlpha = .55; c.fillRect(0, 0, W, H); c.restore();
+  c.save(); c.fillStyle = grain.fine; c.globalAlpha = .55; c.fillRect(0, 0, W, H); c.restore();
   c.globalCompositeOperation = 'source-over';
-  if (er) {   // 지나간 자리의 옅은 분필 가루 흔적
-    ctx.save(); ctx.globalAlpha = .07 * (1 - er.p); ctx.fillStyle = WHITE; ctx.fillRect(0, er.top, Math.max(0, er.front - 40), er.bot - er.top); ctx.restore();
-  }
+  if (er) { ctx.save(); ctx.globalAlpha = .07 * (1 - er.p); ctx.fillStyle = WHITE; ctx.fillRect(0, er.top, Math.max(0, er.front - 40), er.bot - er.top); ctx.restore(); }
   ctx.drawImage(cc, 0, 0);
   if (er) drawEraserSprite(ctx, er);
 }
@@ -416,11 +345,13 @@ function render(t) {
 window.DUR = 1; window.EV = [];
 window.render = render;
 window.TEXTS = () => LC.texts(TX);
+// 검수용(선택): 분필 레이어에서 y 300~1500의 칠해진 픽셀 수 — 빈 칠판 구간 검사에 쓴다
+window.CHALKPIX = () => { const d = cx2.getImageData(0, 300, W, 1200).data; let n = 0; for (let i = 3; i < d.length; i += 64) if (d[i] > 100) n++; return n; };
 (async function init() {
   try {
     const { input, dur, opts } = await LC.load();
     LANG = input.lang;
-    tl = LC.build(input, dur, opts);
+    tl = LC.buildAuto(input, dur, opts);
     window.DUR = tl.DUR; window.EV = tl.EV;
     // 글꼴 로드 대기: 실제로 쓰는 글자로 요청해야 unicode-range 조각도 내려받는다
     const sample = [tl.C.hook, tl.C.wrong, tl.C.right, tl.C.explain, tl.C.cta, tl.C.rightKo, tl.C.rightPh, tl.C.roman, ...tl.C.vocab.flatMap(v => [v.word, v.meaning, v.phonetic, v.type]),

@@ -37,17 +37,20 @@
     return Math.min(1.6, Math.max(0.5, 0.3 + n * 0.035));
   }
 
-  // 설명 요약: 첫 문장. 너무 길면 뒤쪽 절(쉼표 단위)만 남긴다(결론이 뒤에 오는 문장이 많음). data.explanation_short가 있으면 그걸 우선.
+  // 설명 한 줄 요약(최대 maxC자). data.explanation_short 우선(큐 생성 프롬프트가 채울 키).
+  // 없으면 explanation 첫 문장에서 maxC자 이내 결론 절(쉼표 단위, 뒤쪽 우선) → 없으면 뒤쪽 단어들 → 그래도 없으면 '' (설명 장면 생략)
   function pickExplain(d, maxC) {
+    const count = s => [...s].filter(c => !/\s/.test(c)).length;
     if (d.explanation_short) return clean(d.explanation_short);
     const full = clean(d.explanation);
     if (!full) return '';
-    let first = full.split(/(?<=[.!?。！？])\s+/)[0];
-    const count = s => [...s].filter(c => !/\s/.test(c)).length;
-    if (count(first) <= maxC) return first;
-    const parts = first.split(/(?<=[,，、])\s*/);
-    while (parts.length > 1 && count(parts.join(' ')) > maxC) parts.shift();
-    return parts.join(' ').replace(/^[,，、\s]+/, '');
+    const first = full.split(/(?<=[.!?。！？])\s+/)[0];
+    const clauses = first.split(/(?<=[,，、])\s*/).map(x => x.replace(/[,，、]\s*$/, '').trim()).filter(Boolean);
+    for (let i = clauses.length - 1; i >= 0; i--) if (count(clauses[i]) <= maxC && count(clauses[i]) >= 6) return clauses[i];
+    const words = first.split(' '); let out = [];
+    while (words.length && count(out.concat(words[words.length - 1]).join('')) <= maxC) out.unshift(words.pop());
+    const tail = out.join(' ');
+    return count(tail) >= 8 ? tail : '';
   }
 
   // 대화 중 right 문장을 포함한 턴(강조용): 정규화 부분일치 또는 글자 이중쌍 유사도
@@ -76,17 +79,19 @@
       right: clean(d.right), rightPh: clean(d.right_ko_phonetic), rightKo: clean(d.right_ko),
       roman: lang === 'en' ? '' : clean(d.pronunciation),
       tts: { intro: clean(tp.intro) || clean(d.hook), bridge: clean(tp.bridge) || '이렇게 말해요', outro: clean(tp.outro) || clean(d.right_ko) },
-      explain: pickExplain(d, 46),
+      explain: pickExplain(d, 22),
       cta: clean(d.cta),
       handle: '@langcard.studio',
-      vocab: (d.vocab || []).slice(0, 3).map(v => ({ word: clean(v.word), type: clean(v.type), meaning: clean(v.meaning), phonetic: clean(v.phonetic) })),
-      dialogue: (d.dialogue || []).slice(0, 4).map(t => ({
-        speaker: clean(t.speaker) || 'A', line: clean(t.line), pron: clean(t.pronunciation),
-        ph: clean(t.korean_phonetic), ko: clean(t.korean),
-      })),
+      vocab: (d.vocab || []).slice(0, 2).map(v => ({ word: clean(v.word), type: clean(v.type), meaning: clean(v.meaning), phonetic: clean(v.phonetic) })),
+      dialogue: [],
     };
     if (!C.hook || !C.wrong || !C.right) throw new Error('hook/wrong/right 필수');
-    C.hl = highlightIndex(C.dialogue, C.right);
+    // 대화는 2턴만: right가 든 턴 + 바로 앞 턴(right 턴이 첫 턴이거나 없으면 첫 두 턴)
+    const all = (d.dialogue || []).slice(0, 4).map(t => ({ speaker: clean(t.speaker) || 'A', line: clean(t.line), pron: clean(t.pronunciation), ph: clean(t.korean_phonetic), ko: clean(t.korean) }));
+    const h = highlightIndex(all, C.right);
+    const pick = h > 0 ? [h - 1, h] : [0, 1];
+    C.dialogue = pick.filter(i => all[i]).map(i => all[i]);
+    C.hl = h > 0 ? 1 : (h === 0 ? 0 : -1);
     return C;
   }
 
@@ -106,7 +111,8 @@
   // ---- 타임라인 ----
   function build(input, durMap, opts) {
     opts = opts || {};
-    const pace = PACE[opts.pace || 'strict'] || PACE.strict;
+    const pace = PACE[opts.pace || 'fast'] || PACE.fast;
+    const drop = new Set(opts.drop || []);
     const C = normalize(input);
     const D = id => { const v = durMap[id]; if (!(v > 0)) throw new Error('dur.json에 ' + id + ' 없음'); return v; };
     const need = tx => readNeed(tx, pace);
@@ -140,12 +146,12 @@
       w.wipe = WIPE; w.wipeTop = 440; }
 
     // ③ RIGHT
-    const r = add({ id: 'right', t0: w.t1 + WIPE, cue: {} });
+    const r = add({ id: 'right', t0: w.t1, cue: {} });
     { const s = r.t0, c = r.cue;
       c.icon = s; ev(s, 'mark', { kind: 'check' });
       c.bridge = s + 0.15; voice(c.bridge, 'bridge');
       c.voice = c.bridge + D('bridge') + 0.25; voice(c.voice, 'right');
-      c.text = c.voice - 0.1; write(c.text, 'right', C.right);
+      c.text = s + 0.3; write(c.text, 'right', C.right);   // 다리 음성(bridge) 동안 먼저 써 두어 칠판이 비지 않게
       c.ph = c.voice + 0.4; if (C.rightPh) write(c.ph, 'rightPh', C.rightPh);
       c.roman = c.voice + 0.65; if (C.roman) write(c.roman, 'roman', C.roman);
       c.outro = c.voice + D('right') + GAP; voice(c.outro, 'outro');
@@ -155,21 +161,23 @@
       if (C.roman) ends.push(hold(C.roman, c.roman));
       if (C.rightKo) ends.push(hold(C.rightKo, c.ko));
       r.t1 = Math.max(...ends);
-      r.wipe = WIPE; r.wipeTop = 0; }
+      r.wipe = WIPE; r.wipeTop = 270; }
     hk.titleUntil = r.t1;   // 훅 제목은 RIGHT가 끝날 때까지 화면에 남는다
 
-    // ④ EXPLAIN
-    const ex = add({ id: 'explain', t0: r.t1 + WIPE, cue: {} });
-    { const c = ex.cue; c.box = ex.t0; c.text = ex.t0 + 0.3;
-      if (C.explain) { write(c.text, 'explain', C.explain); ev(ex.t0, 'pop'); }
-      ex.t1 = Math.max(ex.t0 + 2.5, C.explain ? hold(C.explain, c.text) : 0);
-      ex.wipe = WIPE; ex.wipeTop = 0; }
-
-    // ⑤ DIALOGUE — 말풍선 순차, 줄마다 목표언어 음성
-    const dl = add({ id: 'dialogue', t0: ex.t1 + WIPE, cue: { turns: [] } });
-    { let tv = dl.t0 + 0.5, end = dl.t0 + 2;
+    // 장면 사이: 지우개가 prev.t1~prev.t1+WIPE에 지나가며, 다음 장면은 prev.t1에 이미 시작(겹침) → 빈 칠판 구간이 없다
+    let prev = r;
+    // ④ EXPLAIN — 한 줄 요약(≤22자). 요약이 없거나 자동 단축 규칙으로 drop되면 장면 생략
+    if (C.explain && !drop.has('explain')) {
+      const ex = add({ id: 'explain', t0: prev.t1, cue: {} }); const c = ex.cue; c.box = ex.t0; c.text = ex.t0 + 0.1;
+      write(c.text, 'explain', C.explain); ev(ex.t0, 'pop');
+      ex.t1 = Math.max(ex.t0 + 2.2, hold(C.explain, c.text));
+      ex.wipe = WIPE; ex.wipeTop = 270; prev = ex;
+    }
+    // ⑤ DIALOGUE — 2턴, 말풍선 순차, 줄마다 목표언어 음성
+    const dl = add({ id: 'dialogue', t0: prev.t1, cue: { turns: [] } });
+    { let tv = dl.t0 + 0.4, end = dl.t0 + 2;
       C.dialogue.forEach((tn, i) => {
-        const cu = { bubble: tv - 0.25, voice: tv, line: tv, ph: tv + 0.25, ko: tv + 0.5 };
+        const cu = { bubble: tv - 0.3, voice: tv, line: tv, ph: tv + 0.25, ko: tv + 0.5 };
         voice(cu.voice, 'd' + i); ev(cu.bubble, 'pop');
         if (tn.line) write(cu.line, 'd' + i + 'l', tn.line);
         if (tn.ph) write(cu.ph, 'd' + i + 'p', tn.ph);
@@ -179,13 +187,14 @@
         dl.cue.turns.push(cu);
         tv += D('d' + i) + GAP;
       });
-      dl.t1 = end; dl.wipe = WIPE; dl.wipeTop = 0; }
+      dl.t1 = end; dl.wipe = WIPE; dl.wipeTop = 270; prev = dl; }
 
-    // ⑥ VOCAB — 음성 없이 효과음만, 카드 순차 등장
-    const vb = add({ id: 'vocab', t0: dl.t1 + WIPE, cue: { cards: [] } });
-    { let end = vb.t0 + 2;
+    // ⑥ VOCAB — 앞 2개, 음성 없이 효과음만
+    if (C.vocab.length && !drop.has('vocab')) {
+      const vb = add({ id: 'vocab', t0: prev.t1, cue: { cards: [] } });
+      let end = vb.t0 + 2;
       C.vocab.forEach((v, i) => {
-        const s = vb.t0 + 0.2 + i * 0.55, cu = { word: s, type: s + 0.1, meaning: s + 0.3, ph: s + 0.5 };
+        const s = vb.t0 + 0.05 + i * 0.5, cu = { word: s, type: s + 0.1, meaning: s + 0.25, ph: s + 0.4 };
         ev(s, 'pop');
         if (v.word) write(cu.word, 'v' + i + 'w', v.word);
         if (v.meaning) write(cu.meaning, 'v' + i + 'm', v.meaning);
@@ -193,11 +202,12 @@
         [[v.word, cu.word], [v.meaning, cu.meaning], [v.phonetic, cu.ph]].forEach(([x, st]) => { if (x) end = Math.max(end, hold(x, st)); });
         vb.cue.cards.push(cu);
       });
-      vb.t1 = end; vb.wipe = WIPE; vb.wipeTop = 0; }
+      vb.t1 = end; vb.wipe = WIPE; vb.wipeTop = 270; prev = vb;
+    }
 
     // ⑦ CTA 엔드카드
-    const ct = add({ id: 'cta', t0: vb.t1 + WIPE, cue: {} });
-    { const c = ct.cue; c.icon = ct.t0; c.text = ct.t0 + 0.3; c.handle = ct.t0 + 0.9;
+    const ct = add({ id: 'cta', t0: prev.t1, cue: {} });
+    { const c = ct.cue; c.icon = ct.t0; c.text = ct.t0 + 0.1; c.handle = ct.t0 + 0.7;
       ev(ct.t0, 'mark', { kind: 'check' });
       write(c.text, 'cta', C.cta || C.handle); write(c.handle, 'handle', C.handle);
       ct.t1 = Math.max(hold(C.cta || C.handle, c.text), hold(C.handle, c.handle)) + 0.2;
@@ -205,7 +215,15 @@
 
     scenes.forEach((sc, i) => { if (i < scenes.length - 1) ev(scenes[i].t1, 'wipe', { d: sc.wipe || 0 }); });
     EV.sort((a, b) => a.t - b.t);
-    return { C, pace, scenes, by, EV, DUR: +(ct.t1 + 0.3).toFixed(3), WIPE };
+    return { C, pace, scenes, by, EV, DUR: +(ct.t1 + 0.9).toFixed(3), WIPE, dropped: [...drop] };
+  }
+
+  // 길이 상한(기본 33초): 넘으면 단어 장면 → 설명 장면 순으로 자동 생략
+  function buildAuto(input, durMap, opts) {
+    opts = opts || {};
+    const max = opts.maxDur || 33; let drop = [], tl = build(input, durMap, Object.assign({}, opts, { drop }));
+    for (const d of ['vocab', 'explain']) { if (tl.DUR <= max) break; drop = drop.concat(d); tl = build(input, durMap, Object.assign({}, opts, { drop })); }
+    return tl;
   }
 
   // readcheck용 TEXTS 헬퍼: 스타일이 모은 [{id,text,x0,y0,x1,y1,pass?}]를 규약 형식으로 정리
@@ -222,5 +240,5 @@
     return { input, dur, opts: input.opts || {} };
   }
 
-  g.LC = { PACE, WIPE, clean, readNeed, writeDur, normalize, narration, build, texts, load, isCJK };
+  g.LC = { PACE, WIPE, clean, readNeed, writeDur, normalize, narration, build, buildAuto, texts, load, isCJK };
 })(typeof window !== 'undefined' ? window : globalThis);
