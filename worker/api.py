@@ -13,6 +13,7 @@ worker 서버에서 실행: uvicorn worker.api:app --host 0.0.0.0 --port 8000
   → 결과 URLs + 데이터를 JSON으로 main 서버에 반환
 """
 
+import hmac
 import json
 import os
 import subprocess
@@ -38,7 +39,9 @@ import pipeline
 
 # ── 앱 초기화 ─────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="LangCard Worker", version="1.1.0")
+# 설명서 페이지(/docs·/redoc·/openapi.json)는 끈다 — 공개 노출 시 API 구조가 드러남
+app = FastAPI(title="LangCard Worker", version="1.1.0",
+              docs_url=None, redoc_url=None, openapi_url=None)
 _start_time = time.time()
 _bearer = HTTPBearer()
 
@@ -66,7 +69,9 @@ EVENT_TOPICS = [
 # ── 인증 ──────────────────────────────────────────────────────────────────────
 
 def _verify(creds: HTTPAuthorizationCredentials = Security(_bearer)):
-    if not WORKER_SECRET or creds.credentials != WORKER_SECRET:
+    # 상수 시간 비교(타이밍 공격 방지)
+    if not WORKER_SECRET or not hmac.compare_digest(
+            creds.credentials.encode(), WORKER_SECRET.encode()):
         raise HTTPException(status_code=401, detail="Unauthorized")
     return creds
 
