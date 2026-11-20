@@ -104,9 +104,8 @@ def get_recent_hook(lang: str) -> list[str]:
     return [e["wrong"] for e in entries if isinstance(e, dict)]
 
 
-def is_hook_duplicate(lang: str, wrong: str) -> bool:
-    """HOOK wrong 표현이 히스토리에 있으면 True"""
-    recent_wrongs = get_recent_hook(lang)
+def is_similar_wrong(wrong: str, recent_wrongs: list[str]) -> bool:
+    """wrong이 recent_wrongs와 정확히 일치하거나 유사(≥임계값)하면 True. 순수 함수."""
     if not recent_wrongs:
         return False
 
@@ -120,6 +119,11 @@ def is_hook_duplicate(lang: str, wrong: str) -> bool:
             return True
 
     return False
+
+
+def is_hook_duplicate(lang: str, wrong: str) -> bool:
+    """HOOK wrong 표현이 히스토리에 있으면 True"""
+    return is_similar_wrong(wrong, get_recent_hook(lang))
 
 
 def add_hook(lang: str, wrong: str, right: str) -> None:

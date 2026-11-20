@@ -2,9 +2,9 @@
 from __future__ import annotations
 import json
 import os
-import anthropic
 from config import LANG_CONFIG
-from generator import history
+from generator import history, hook_queue
+from generator.hook_prompt import HOOK_SYSTEM as _HOOK_SYSTEM, build_hook_prompt as _build_hook_prompt  # noqa: F401
 
 _PREFETCH_DIR = "output"
 
@@ -24,7 +24,16 @@ def load_prefetch(date_str: str, lang: str) -> dict | None:
     except Exception:
         return None
 
-client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+_client_cache = None
+
+
+def _client():
+    """Anthropic 클라이언트 지연 생성 (키·패키지 없는 환경에서도 import 가능)"""
+    global _client_cache
+    if _client_cache is None:
+        import anthropic
+        _client_cache = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    return _client_cache
 
 SYSTEM_PROMPT = """You are a language learning content creator for Korean learners studying English, Chinese, or Japanese.
 Generate practical, natural, commonly used expressions — NOT textbook formal ones.
@@ -80,7 +89,7 @@ Return ONLY this JSON:
 
 def _call_api(prompt: str) -> dict:
     """Claude API 호출 후 JSON 파싱"""
-    message = client.messages.create(
+    message = _client().messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=1800,
         system=SYSTEM_PROMPT,
@@ -122,78 +131,24 @@ def generate(lang: str, topic: dict, max_retries: int = 3) -> dict:
     return data
 
 
-_HOOK_SYSTEM = """You are a language correction content creator for Korean Instagram.
-You create "common mistake → correct expression" content for Korean learners.
-The content must be accurate: WRONG must be a real, common mistake Koreans actually make.
-RIGHT must be the natural, native-speaker expression.
-Always respond with valid JSON only. No markdown, no extra text."""
-
-
-def _build_hook_prompt(lang: str, recent_wrongs: list[str]) -> str:
-    lc = LANG_CONFIG[lang]
-    history_str = "\n".join(f"  - {w}" for w in recent_wrongs) if recent_wrongs else "  (없음)"
-
-    pronunciation_field = ""
-    if lc["has_pronunciation"]:
-        pronunciation_field = f'"pronunciation": "{lc["pronunciation_label"]} of the RIGHT expression",'
-    else:
-        pronunciation_field = '"pronunciation": null,'
-
-    return f"""Generate ONE common mistake that Korean speakers make in {lc['name']}.
-
-Topic: Everyday expressions (일상생활 표현)
-
-Rules:
-- WRONG must be a mistake Koreans ACTUALLY make frequently (Konglish, direct translation, grammar error, etc.)
-- RIGHT must be what native speakers naturally say in the same situation
-- The difference must have clear learning value (not trivially obvious)
-- HOOK must stop scrolling in 1 second — provocative, short, in Korean
-- TTS parts must be under 15 characters each (for timing control)
-- For vocab: pick 3 key words from the wrong or right expression; focus on commonly confused or useful words; type must be in Korean: 동사, 형용사, 부사, 명사, 전치사, 조동사
-- dialogue: Generate a 2~4 turn realistic conversation where the RIGHT expression is used naturally. The RIGHT expression MUST appear in one of the turns (preferably the last). Each turn needs: speaker (A or B), line (in {lc['name']}), pronunciation (romanization/pinyin for zh/ja, null for en), korean_phonetic (한글 발음), korean (한국어 번역).
-- MUST be different from these recently used WRONG expressions:
-{history_str}
-
-Return ONLY this JSON:
-{{
-  "hook": "짧고 강한 한국어 문장 (예: '이거 영어로 말하면 99%가 틀림')",
-  "wrong": "the incorrect {lc['name']} expression Koreans commonly say",
-  "wrong_ko_phonetic": "WRONG의 한글 발음 표기 (예: '워 헌 까오씽 지엔따오 니')",
-  "right": "the natural/correct {lc['name']} expression",
-  "right_ko_phonetic": "RIGHT의 한글 발음 표기 (예: '헌 까오씽 지엔따오 니')",
-  "right_ko": "RIGHT의 한국어 뜻",
-  {pronunciation_field}
-  "tts_parts": {{
-    "intro": "한국어 도입 (15자 이내, 예: '많은 사람들이 이렇게 말합니다')",
-    "bridge": "한국어 연결 (15자 이내, 예: '하지만 올바른 표현은')",
-    "outro": "한국어 마무리 (15자 이내, 예: RIGHT의 한국어 뜻)"
-  }},
-  "subtitle_lines": [
-    "자막1: HOOK 요약 (10단어 이내)",
-    "❌ WRONG 표현",
-    "→ WRONG의 한국어 뜻",
-    "✅ RIGHT 표현",
-    "→ RIGHT의 한국어 뜻"
-  ],
-  "explanation": "틀린 표현이 왜 어색한지, 올바른 표현은 언제/어떻게 쓰는지 2~3문장으로 설명 (한국어). 뉘앙스 차이, 원어민이 실제 쓰는 상황 포함. 예: '\"He is a kind person\"은 문법적으로는 맞지만 원어민 대화에서는 너무 딱딱하게 들려요. 일상에서는 \"He\\'s really nice\"처럼 짧고 자연스러운 표현을 더 많이 써요. 특히 친한 사람을 소개하거나 칭찬할 때 이 표현이 훨씬 자연스럽습니다.'",
-  "cta": "저장/댓글 유도 문구 (예: '이거 몰랐으면 저장해두세요'). 이모지 사용 금지.",
-  "vocab": [
-    {{"word": "key word from wrong or right expression", "type": "품사 (동사/형용사/부사/명사/전치사)", "meaning": "한국어 뜻", "phonetic": "한글 발음 (영어만, 중국어/일본어는 null)"}},
-    {{"word": "second word", "type": "품사", "meaning": "한국어 뜻", "phonetic": "한글 발음"}},
-    {{"word": "third word", "type": "품사", "meaning": "한국어 뜻", "phonetic": "한글 발음"}}
-  ],
-  "dialogue": [
-    {{"speaker": "A", "line": "대화 원문 (in {lc['name']})", "pronunciation": "로마자/병음 (영어는 null)", "korean_phonetic": "한글 발음", "korean": "한국어 번역"}},
-    {{"speaker": "B", "line": "대화 원문 (in {lc['name']})", "pronunciation": "로마자/병음 (영어는 null)", "korean_phonetic": "한글 발음", "korean": "한국어 번역"}}
-  ]
-}}"""
-
-
 def generate_hook(lang: str, max_retries: int = 3) -> dict:
     """
     HOOK형 콘텐츠 생성 (WRONG→RIGHT 교정 포맷).
+    1순위: 맥이 구독으로 미리 만들어 둔 큐(hook_queue). 큐가 비면
+    AI_BACKEND=api 일 때만 유료 API 경로, 기본(subscription)은 RuntimeError.
     중복 감지: wrong 표현 기준으로 체크.
     """
+    queued = hook_queue.pop(lang)
+    if queued is not None:
+        history.add_hook(lang, queued["wrong"], queued["right"])
+        print(f"  ✓ 구독 큐에서 사용 ({lang}): {queued['wrong']!r}")
+        return queued
+
+    if os.environ.get("AI_BACKEND", "subscription") != "api":
+        raise RuntimeError(
+            f"구독 큐가 비어 있습니다({lang}) — 맥에서 scripts/fill_hook_queue.py 실행 필요"
+        )
+
     for attempt in range(1, max_retries + 1):
         recent_wrongs = history.get_recent_hook(lang)
         prompt = _build_hook_prompt(lang, recent_wrongs)
@@ -254,7 +209,7 @@ Return ONLY a JSON array of exactly {n} objects:
   }}
 ]"""
 
-    message = client.messages.create(
+    message = _client().messages.create(
         model="claude-sonnet-4-6",
         max_tokens=2000,
         system=_COLLECTION_SYSTEM,

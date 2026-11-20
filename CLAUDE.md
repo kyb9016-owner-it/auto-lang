@@ -51,6 +51,8 @@ card-dispatcher (라우팅)
 - `INSTAGRAM_ACCESS_TOKEN`
 - `INSTAGRAM_BUSINESS_ID`
 
+**HOOK 생성은 구독 큐 방식**: 맥에서 `python3 scripts/fill_hook_queue.py`로 `claude -p`(구독) 결과를 서버 `queue/hook/<lang>/`에 채운다. 서버 `.env`의 `AI_BACKEND`는 기본 `subscription`(큐가 비면 RuntimeError), `api`로 두면 큐가 빌 때 기존 유료 API로 폴백.
+
 ---
 
 ## 4. 주요 파일 구조

@@ -24,3 +24,6 @@ tmp/
 
 # 생성된 프리뷰 HTML
 output/preview_*.html
+
+# HOOK 구독 큐 (서버 런타임 데이터)
+queue/
