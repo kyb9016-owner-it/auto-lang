@@ -128,7 +128,9 @@ def dispatch(slot: str | None, dry_run: bool = False,
             continue
 
         # ── 리캡 캐러셀 (하루 1번만) ──────────────────────────────────
-        if recap_card_urls and not recap_posted and not is_slot_posted(today_str, "recap"):
+        # 하루 3회(슬롯당 릴스 1개) 운영 — 리캡 캐러셀은 LANGCARD_RECAP=1일 때만 (2026-11-20)
+        if (os.environ.get("LANGCARD_RECAP", "0") == "1"
+                and recap_card_urls and not recap_posted and not is_slot_posted(today_str, "recap")):
             try:
                 pipeline.post_recap(recap_card_urls)
                 recap_posted = True
