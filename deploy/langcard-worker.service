@@ -8,7 +8,7 @@ Type=simple
 User=langcard
 WorkingDirectory=/opt/auto-lang
 ExecStart=/opt/auto-lang/.venv/bin/uvicorn worker.api:app \
-    --host 0.0.0.0 \
+    --host 127.0.0.1 \
     --port 8000 \
     --workers 1 \
     --log-level info
