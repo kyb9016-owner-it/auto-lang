@@ -60,6 +60,7 @@ Return ONLY this JSON:
     "→ RIGHT의 한국어 뜻"
   ],
   "explanation": "틀린 표현이 왜 어색한지, 올바른 표현은 언제/어떻게 쓰는지 2~3문장으로 설명 (한국어). 뉘앙스 차이, 원어민이 실제 쓰는 상황 포함. 예: '\"He is a kind person\"은 문법적으로는 맞지만 원어민 대화에서는 너무 딱딱하게 들려요. 일상에서는 \"He\\'s really nice\"처럼 짧고 자연스러운 표현을 더 많이 써요. 특히 친한 사람을 소개하거나 칭찬할 때 이 표현이 훨씬 자연스럽습니다.'",
+  "explanation_short": "릴스 화면용 한 줄 요약 (한국어 22자 이내, 왜 틀렸는지 핵심 결론만. 예: '아이쇼핑은 한국에서만 쓰는 말이에요')",
   "cta": "저장/댓글 유도 문구 (예: '이거 몰랐으면 저장해두세요'). 이모지 사용 금지.",
   "vocab": [
     {{"word": "key word from wrong or right expression", "type": "품사 (동사/형용사/부사/명사/전치사)", "meaning": "한국어 뜻", "phonetic": "한글 발음 (영어만, 중국어/일본어는 null)"}},
@@ -93,6 +94,7 @@ HOOK_JSON_SCHEMA = {
         },
         "subtitle_lines": {"type": "array", "items": _STR},
         "explanation": _STR,
+        "explanation_short": {"type": "string", "minLength": 1, "maxLength": 30},
         "cta": _STR,
         "vocab": {
             "type": "array",
@@ -128,7 +130,7 @@ HOOK_JSON_SCHEMA = {
     },
     "required": [
         "hook", "wrong", "wrong_ko_phonetic", "right", "right_ko_phonetic", "right_ko",
-        "pronunciation", "tts_parts", "subtitle_lines", "explanation", "cta", "vocab", "dialogue",
+        "pronunciation", "tts_parts", "subtitle_lines", "explanation", "explanation_short", "cta", "vocab", "dialogue",
     ],
 }
 
