@@ -1,0 +1,268 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>LangCard - text-flash-cuts</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+@font-face{font-family:"LCKR";src:url("fonts/NotoSansKR-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCJP";src:url("fonts/NotoSansJP-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCSC";src:url("fonts/NotoSansSC-Bold.ttf");font-weight:700;font-display:block}
+html,body{margin:0;padding:0;background:#000;overflow:hidden}
+canvas{display:block}
+</style></head>
+<body><canvas id="c"></canvas>
+<script src="common/timeline.js"></script>
+<script src="common/layout.js"></script>
+<script>
+// ===== LangCard / Text Flash Cuts 스타일 — 1080x1920, 결정적 render(t) =====
+// 원전: lemo-opuscar styles/text-flash-cuts/STYLE.md. 번역: 빨강·검정·종이흰색 3색 평면 카드, 글자는 그림(거대 글리프가 화면 밖으로 번짐),
+// 전환은 디졸브/와이프 없이 "컷"(2프레임 적흑 반전), 레일이 3프레임에 가장자리에서 꽂힘, 카드 슬램(1.08→1.02→1.0 + 지터).
+// 캐릭터 이미지(이미지 생성 필요)는 쓰지 않는다 — 전부 코드로 그린 평면 도형. 무거운 명조 대신 Noto Sans Bold + 외곽선으로 굵기를 키움.
+const W = 1080, H = 1920, FPS = 24, BEAT = 0.4;           // 150BPM = 0.4초 = 약 9.6프레임
+const SAFE = LCL.SAFE;
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const ctx = cv.getContext('2d');
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const oc = mk(W, H), og = oc.getContext('2d');             // 장면 합성(반전 전)
+const RED = '#d4162b', BLK = '#0a0a0c', PAP = '#f2efe8', GRY = '#8d8a84', PAP2 = '#d8d4cc', DRK = '#1b1b1f', DRED = '#2a0b10';
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const frameOf = t => Math.floor(t * FPS + 1e-6);
+
+let tl = null, LAY = {}, TX = [], LANG = 'en', LX = null;
+const STACK = { ko: 'LCKR, LCJP, LCSC, sans-serif', tg: null };
+const fontStr = (kind, size) => `700 ${size}px ${STACK[kind]}`;
+
+// ---------- 글씨(굵게: 채움 + 같은 색 외곽선, 필요하면 후광) ----------
+function drawBlock(g, B, x, color, o) {
+  o = o || {};
+  g.font = fontStr(B.kind, B.size); g.textBaseline = 'middle'; g.textAlign = 'left'; g.lineJoin = 'round';
+  B.lines.forEach((ln, i) => {
+    const lw = B.lw[i], lx = o.center ? B.cx - lw / 2 : x, ty = B.y + i * B.lhp + B.lhp / 2;
+    if (o.halo) { g.lineWidth = B.size * .17; g.strokeStyle = o.halo; g.strokeText(ln, lx, ty); }
+    g.lineWidth = Math.max(1, B.size * .04); g.strokeStyle = color; g.fillStyle = color; g.fillText(ln, lx, ty); g.strokeText(ln, lx, ty);
+  });
+}
+// 카드 슬램: 0프레임 1.08배·지터 12px, 1프레임 1.02배·10px, 이후 1.0·2px(2~3프레임) → 정지
+function slamXf(g, cx0, cy0, t, tc, seed) {
+  const f = frameOf(t - tc), sc = f <= 0 ? 1.08 : f === 1 ? 1.02 : 1, amp = f <= 0 ? 12 : f === 1 ? 10 : f < 4 ? 2 : 0;
+  const R = rng(seed * 7919 + f * 31 + 1), jx = Math.round((R() - .5) * 2 * amp), jy = Math.round((R() - .5) * 2 * amp);
+  g.translate(cx0 + jx, cy0 + jy); g.scale(sc, sc); g.translate(-cx0, -cy0);
+}
+// 한 덩어리 글씨를 tc에 슬램으로 올리고 TEXTS에 전체 문구로 보고
+function put(g, B, x, color, t, tc, o) {
+  o = o || {};
+  if (t < tc) return;
+  const lmax = Math.max(...B.lw), left = o.center ? B.cx - lmax / 2 : x;
+  g.save(); slamXf(g, left + lmax / 2, B.y + B.h / 2, t, tc, B.id ? B.id.length * 13 + 5 : 1);
+  const m = g.getTransform(); drawBlock(g, B, x, color, o); g.restore();
+  if (o.rep !== false) {
+    const lineLeft = o.center ? B.cx - lmax / 2 : x;
+    TX.push({ id: B.id, text: B.text, x0: m.a * lineLeft + m.e, x1: m.a * (lineLeft + lmax) + m.e, y0: m.d * B.y + m.f, y1: m.d * (B.y + B.h) + m.f });
+  }
+}
+// 3프레임에 가장자리에서 꽂히는 판(레일·블록). 계단식(보간 아님)
+function slabProg(t, tc) { const a = clamp((t - tc) * FPS / 3); return a <= 0 ? 0 : Math.ceil(a * 3 - 1e-6) / 3; }
+function rail(g, t, tc, col, w) { const p = slabProg(t, tc); if (p > 0) { g.fillStyle = col; g.fillRect(0, 0, w * p, H); } }
+function bar(g, t, tc, x, y, w, h, col) { const p = slabProg(t, tc); if (p > 0) { g.fillStyle = col; g.fillRect(x, y, w * p, h); } }
+
+// ---------- 레이아웃(폰트 로드 후 1회) ----------
+const YC = 890;
+function layout() {
+  const C = tl.C, L = {}, M = LCL.MIN, SF = LCL.SAFE;
+  STACK.tg = LANG === 'ja' ? 'LCJP, LCKR, sans-serif' : LANG === 'zh' ? 'LCSC, LCKR, sans-serif' : 'LCKR, LCJP, LCSC, sans-serif';
+  LX = LCL.make(og, fontStr);
+  // 훅: 처음 2초 화면 가득(≥110px), 왼쪽 정렬(가운데 정렬 금지 — 슬라이드처럼 보임)
+  let hb = LX.fit(C.hook, 'ko', { maxW: 880, maxLines: 3, s0: 150, s1: M.hook, lh: 1.2 });
+  if (hb.lines.length > 3 || hb.w > 881) hb = LX.fit(C.hook, 'ko', { maxW: 880, maxLines: 4, s0: M.hook, s1: 80, lh: 1.2 });
+  hb.id = 'hook'; hb.y = YC - hb.h / 2; L.hook = { B: hb, x: 100, glyphs: [...C.hook].filter(ch => /[\p{L}\p{N}]/u.test(ch)) };
+  // 제목 띠(훅이 줄어든 모습): 종이색 띠 + 빨간 탭, WRONG·RIGHT 내내 위에 남는다
+  const tb = LX.fit(C.hook, 'ko', { maxW: 920, maxLines: 3, s0: 62, s1: M.title, lh: 1.2 });
+  tb.id = 'hook'; tb.y = 304; L.band = { B: tb, x: 80, top: 272, bottom: tb.y + tb.h + 22 };
+  const cTop = L.band.bottom + 36, mw = 880;
+  const shift = (st, y1, bias) => { const d = Math.max(0, (y1 - st.bottom) * bias); st.forEach(b => b.y += d); return st; };
+  L.wrong = shift(LX.stack([
+    { id: 'wrong', text: C.wrong, kind: 'tg', s0: 130, s1: M.body, maxLines: 3, color: PAP, lh: 1.2 },
+    { id: 'wrongPh', text: C.wrongPh, kind: 'ko', s0: 68, s1: 40, maxLines: 2, color: GRY, gap: 44, lh: 1.28 }], cTop + 20, SF.bottom, mw), SF.bottom, .45);
+  L.right = shift(LX.stack([
+    { id: 'right', text: C.right, kind: 'tg', s0: 130, s1: M.body, maxLines: 3, color: PAP, lh: 1.2 },
+    { id: 'rightPh', text: C.rightPh, kind: 'ko', s0: 64, s1: 40, maxLines: 2, color: PAP, gap: 36, lh: 1.28 },
+    { id: 'roman', text: C.roman, kind: 'tg', s0: 56, s1: 36, maxLines: 2, color: PAP, gap: 14, lh: 1.25 },
+    { id: 'rightKo', text: C.rightKo, kind: 'ko', s0: 70, s1: 44, maxLines: 3, color: PAP, gap: 56, lh: 1.3 }], cTop + 20, SF.bottom - 40, mw), SF.bottom - 40, .35);
+  if (C.explain) {
+    const b = LX.fit(C.explain, 'ko', { maxW: 840, maxLines: 5, s0: 108, s1: 60, lh: 1.32 });
+    b.id = 'explain'; b.y = YC - b.h / 2; L.explain = { B: b, x: 110 };
+  }
+  L.dialogue = LX.dialogue(C.dialogue, { y0: SF.top + 20, y1: SF.bottom, gap: 90 });
+  { // 말풍선 대신 화자 블록: 1번 화자 = 빨강(종이색 글자), 2번 = 검정
+    L.dialogue.forEach((r, i) => {
+      const red = i % 2 === 0; r.fieldCol = red ? RED : BLK; r.hlBar = red ? BLK : RED;
+      [[r.a, PAP], [r.b, red ? BLK : GRY], [r.c, PAP]].forEach(([p, col]) => { if (p) p.color = col; });
+      if (red && r.b) r.b.color = '#17000a';
+    });
+  }
+  { const cards = C.vocab.map((v, i) => {
+      const w = LX.fit(v.word, 'tg', { maxW: 640, maxLines: 1, s0: 140, s1: 72, lh: 1.15 }); w.id = 'v' + i + 'w';
+      const ty = v.type ? LX.fit(v.type, 'ko', { maxW: 230, maxLines: 1, s0: 44, s1: 32, lh: 1.2 }) : null; if (ty) ty.id = 'v' + i + 't';
+      const m = v.meaning ? LX.fit(v.meaning, 'ko', { maxW: 880, maxLines: 2, s0: 66, s1: 44, lh: 1.28 }) : null; if (m) m.id = 'v' + i + 'm';
+      const p = v.phonetic ? LX.fit(v.phonetic, 'ko', { maxW: 880, maxLines: 1, s0: 54, s1: 38, lh: 1.25 }) : null; if (p) p.id = 'v' + i + 'p';
+      return { w, ty, m, p, h: w.h + 16 + (m ? m.h : 0) + (p ? p.h + 6 : 0) };
+    });
+    const GAPC = 110, tot = cards.reduce((s, c) => s + c.h, 0) + GAPC * (cards.length - 1); let y = YC - tot / 2;
+    cards.forEach(k => { k.w.y = y; let yy = y + k.w.h + 16; if (k.ty) k.ty.y = y + (k.w.h - k.ty.h) / 2 + 8; if (k.m) { k.m.y = yy; yy += k.m.h; } if (k.p) k.p.y = yy + 6; k.div = y + k.h + GAPC / 2; y += k.h + GAPC; });
+    L.vocab = cards; }
+  { const b = LX.fit(C.cta || C.handle, 'ko', { maxW: 880, maxLines: 4, s0: 108, s1: 60, lh: 1.26 }); b.id = 'cta';
+    const h = LX.fit(C.handle, 'ko', { maxW: 880, maxLines: 1, s0: 92, s1: 48, lh: 1.2 }); h.id = 'handle';
+    const tot = 180 + 60 + b.h + 40 + 80 + h.h; let y = YC - tot / 2; L.cta = { iconY: y, b, h }; b.y = y + 240; h.y = b.y + b.h + 120; }
+  LAY = L;
+}
+
+// ---------- 장식(색 평면 위 도형) ----------
+function glyph(g, ch, cx, cy, size, col) { g.save(); g.font = fontStr('ko', size); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = col; g.strokeStyle = col; g.lineWidth = size * .05; g.fillText(ch, cx, cy); g.strokeText(ch, cx, cy); g.restore(); }
+function thick(g, pts, w, col) { g.save(); g.strokeStyle = col; g.lineWidth = w; g.lineCap = 'butt'; g.lineJoin = 'miter'; g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); pts.slice(1).forEach(p => g.lineTo(p[0], p[1])); g.stroke(); g.restore(); }
+function tunnel(g, step, col, cx = 540, cy = YC) {      // 창 터널: 중첩 사각형, 박자마다 반 칸씩 한 번에 전진
+  const ph = (step * .5) % 1; g.save(); g.strokeStyle = col; g.lineWidth = 9;
+  for (let i = 0; i < 10; i++) { const s = 1500 * Math.pow(.72, i - ph); g.strokeRect(cx - s / 2, cy - s * .62 / 2 * 1.3, s, s * .62 * 1.3); }
+  g.restore();
+}
+function rays(g, col) { g.save(); g.strokeStyle = col; g.lineWidth = 7; for (let i = 0; i < 14; i++) { const a = i / 14 * Math.PI * 2; g.beginPath(); g.moveTo(540 + Math.cos(a) * 140, YC + Math.sin(a) * 140); g.lineTo(540 + Math.cos(a) * 1600, YC + Math.sin(a) * 1600); g.stroke(); } g.restore(); }
+
+// ---------- HOOK: 0초부터 플래시 카드 — 분 단위가 아니라 프레임 단위 컷 ----------
+const FIELD = [RED, BLK, PAP], GLY = [BLK, RED, RED], BARC = [BLK, RED, BLK];
+const EARLY = [3, 3, 3, 2, 2, 2, 2, 2, 2];      // 처음 0.9초: 컷이 점점 짧아진다(가속)
+const ORDER = [0, 1, 2, 1, 0, 2, 1, 0, 1, 2];
+function hookState(t) {
+  const hk = tl.by.hook, fr = frameOf(t), m0 = hk.cue.move[0];
+  let k, hold = false;
+  if (t >= m0) k = 100 + Math.floor((t - m0) * FPS / 3);          // 끝 0.55초: 3프레임 컷(전환 직전 긴장)
+  else { let acc = 0; k = -1; for (let i = 0; i < EARLY.length; i++) { acc += EARLY[i]; if (fr < acc) { k = i; break; } } if (k < 0) { hold = true; k = 50; } }
+  return { k, hold, fi: hold ? 1 : ORDER[k % ORDER.length] };
+}
+function drawHook(g, t) {
+  const L = LAY.hook, B = L.B, hk = tl.by.hook, S = hookState(t);
+  const beat = Math.floor(t / BEAT);
+  g.fillStyle = FIELD[S.fi]; g.fillRect(0, 0, W, H);
+  const R = rng(S.hold ? 4000 + beat : S.k * 131 + 7);
+  // 거대 글리프(화면 밖으로 번짐) + 가로 판
+  if (L.glyphs.length) {
+    const ch = L.glyphs[(S.hold ? beat * 3 + 1 : S.k) % L.glyphs.length], sz = S.hold ? 900 + (beat % 4) * 70 : 820 + R() * 520;
+    glyph(g, ch, S.hold ? 640 : 540 + (R() - .5) * 560, S.hold ? YC + 40 : YC + (R() - .5) * 520, sz, S.hold ? DRED : GLY[S.fi]);
+  }
+  if (!S.hold) { const y = R() * 1500 + 150, h = 120 + R() * 220; g.fillStyle = BARC[S.fi]; if (R() < .5) g.fillRect(0, y, W * (.45 + R() * .5), h); else { const w = W * (.45 + R() * .5); g.fillRect(W - w, y, w, h); } }
+  else { rail(g, t, 0.0, RED, 56); const r = (t % BEAT) / BEAT; g.fillStyle = RED; g.fillRect(0, 1500 + 0, W * (beat % 2 ? 1 : .6), 24); }
+  const pap = S.fi === 2;
+  put(g, B, L.x, pap ? BLK : PAP, t, 0, { halo: pap ? PAP : BLK });
+}
+// 제목 띠: 훅 끝에서 컷으로 줄어든 모습(같은 문구)
+function drawBand(g, t) {
+  const L = LAY.band, B = L.B, hk = tl.by.hook;
+  g.fillStyle = PAP; g.fillRect(0, L.top, W, L.bottom - L.top); g.fillStyle = RED; g.fillRect(0, L.top, 44, L.bottom - L.top);
+  put(g, B, L.x, BLK, t, hk.t1);
+}
+
+// ---------- WRONG / RIGHT ----------
+function drawWrong(g, t, sc) {
+  const cu = sc.cue, items = LAY.wrong, rep = t < sc.t1, age = t - sc.t0, step = Math.floor(age / BEAT);
+  g.fillStyle = BLK; g.fillRect(0, 0, W, H);
+  const s = 230 + step * 12; thick(g, [[860 - s, 1260 - s], [860 + s, 1260 + s]], 150, DRED); thick(g, [[860 + s, 1260 - s], [860 - s, 1260 + s]], 150, DRED);
+  rail(g, t, sc.t0, RED, 56);
+  items.forEach(B => {
+    put(g, B, 100, B.color, t, B.id === 'wrong' ? cu.text : cu.ph, { rep });
+    if (B.id === 'wrong' && t >= cu.strike) {     // 음성이 끝나면 붉은 판이 글줄을 관통(3프레임, 줄마다 한 프레임씩 지연)
+      B.lines.forEach((ln, i) => { const my = B.y + i * B.lhp + B.lhp * .54, hh = Math.max(12, B.size * .14);
+        bar(g, t, cu.strike + i * 2 / FPS, 60, my - hh / 2, B.lw[i] + 80, hh, RED); });
+    }
+  });
+}
+function drawRight(g, t, sc) {
+  const cu = sc.cue, items = LAY.right, rep = t < sc.t1, age = t - sc.t0, step = Math.floor(age / BEAT), st = { right: cu.text, rightPh: cu.ph, roman: cu.roman, rightKo: cu.ko };
+  g.fillStyle = RED; g.fillRect(0, 0, W, H);
+  const s = 240 + step * 12; thick(g, [[880 - s * .55, 1230], [880 - s * .1, 1230 + s * .5], [880 + s * .75, 1230 - s * .6]], 150, '#a50f20');
+  rail(g, t, sc.t0, BLK, 56);
+  const ko = items.find(b => b.id === 'rightKo');
+  if (ko) bar(g, t, st.rightKo - .05, 0, ko.y - 22, W, ko.h + 44, BLK);
+  items.forEach(B => put(g, B, 100, B.color, t, st[B.id], { rep }));
+  const R = items[0]; if (R) bar(g, t, cu.text + .3, 100, R.y + R.h + 6, R.w, 14, BLK);      // 정답 밑줄: 검정 판이 꽂힘
+}
+function drawExplain(g, t, sc) {
+  const cu = sc.cue, L = LAY.explain, rep = t < sc.t1, step = Math.floor((t - sc.t0) / BEAT);
+  g.fillStyle = PAP; g.fillRect(0, 0, W, H);
+  tunnel(g, step, PAP2);
+  rail(g, t, sc.t0, RED, 56);
+  put(g, L.B, L.x, BLK, t, cu.text, { rep });
+  bar(g, t, cu.text + .35, L.x, L.B.y + L.B.h + 20, Math.min(L.B.w, 700), 18, RED);
+}
+function drawDialogue(g, t, sc) {
+  const rep = t < sc.t1;
+  g.fillStyle = PAP; g.fillRect(0, 0, W, H); rays(g, PAP2);
+  LAY.dialogue.forEach((r, i) => {
+    const cu = sc.cue.turns[i]; if (t < cu.bubble) return;
+    const p = slabProg(t, cu.bubble), pad = 40, L = r.side === 'L';
+    const x0 = L ? -30 : r.x - pad, x1 = L ? r.x + r.w + pad : W + 30, bw = x1 - x0, by = r.y - 26, bh = r.h + 52;
+    const off = (1 - p) * (L ? -bw : bw);
+    g.fillStyle = r.fieldCol; g.fillRect(x0 + off, by, bw, bh);
+    g.fillStyle = r.hlBar; if (p >= 1) g.fillRect(L ? x1 - 14 : x0, by, 14, bh);
+    [[r.a, cu.line], [r.b, cu.ph], [r.c, cu.ko]].forEach(([B, st]) => B && put(g, B, 0, B.color, t, st, { center: true, rep }));
+    if (i === tl.C.hl && r.a) bar(g, t, cu.line + .35, r.a.cx - r.a.w / 2, r.a.y + r.a.h - 4, r.a.w, 9, r.hlBar);
+  });
+}
+function drawVocab(g, t, sc) {
+  const rep = t < sc.t1, step = Math.floor((t - sc.t0) / BEAT);
+  g.fillStyle = BLK; g.fillRect(0, 0, W, H); tunnel(g, step, DRK);
+  rail(g, t, sc.t0, RED, 56);
+  LAY.vocab.forEach((k, i) => {
+    const cu = sc.cue.cards[i]; if (t < cu.word) return;
+    put(g, k.w, 100, PAP, t, cu.word, { rep });
+    if (k.ty) put(g, k.ty, SAFE.x1 - k.ty.lw[0] - 10, GRY, t, cu.type, { rep });
+    if (k.m) put(g, k.m, 100, PAP, t, cu.meaning, { rep });
+    if (k.p) put(g, k.p, 100, GRY, t, cu.ph, { rep });
+    if (i < LAY.vocab.length - 1) bar(g, t, cu.word + .2, 0, k.div - 7, W, 14, RED);
+  });
+}
+function drawCta(g, t, sc) {
+  const cu = sc.cue, L = LAY.cta, rep = t < sc.t1, step = Math.floor((t - sc.t0) / BEAT), by = L.iconY;
+  g.fillStyle = BLK; g.fillRect(0, 0, W, H);
+  rail(g, t, sc.t0, RED, 56);
+  const a = slabProg(t, cu.icon);      // 아래 화살표(저장 유도): 빨간 평면 폴리곤
+  if (a > 0) { const h = 180 * a; g.fillStyle = RED; g.beginPath(); g.moveTo(130, by); g.lineTo(210, by); g.lineTo(210, by + h * .5); g.lineTo(260, by + h * .5); g.lineTo(170, by + h); g.lineTo(80, by + h * .5); g.lineTo(130, by + h * .5); g.closePath(); g.fill(); }
+  put(g, L.b, 100, PAP, t, cu.text, { rep });
+  bar(g, t, cu.text + .4, 100, L.b.y + L.b.h + 28, Math.min(L.b.w, 760), 14, RED);
+  put(g, L.h, 100, RED, t, cu.handle, { rep });
+}
+const DRAW = { wrong: drawWrong, right: drawRight, explain: drawExplain, dialogue: drawDialogue, vocab: drawVocab, cta: drawCta };
+
+// ---------- 합성: 전부 컷. 장면 시작 2프레임은 적흑 반전 ----------
+function render(t) {
+  TX = [];
+  if (!tl) return;
+  const sc = tl.scenes; let i = 0; for (let k = 0; k < sc.length; k++) if (sc[k].t0 <= t) i = k;
+  const cur = sc[i], age = t - cur.t0, hk = tl.by.hook;
+  og.setTransform(1, 0, 0, 1, 0, 0); og.globalAlpha = 1; og.globalCompositeOperation = 'source-over';
+  if (cur.id === 'hook') drawHook(og, t); else { DRAW[cur.id](og, t, cur); if (t < hk.titleUntil) drawBand(og, t); }
+  let inv = frameOf(age) < 2;
+  if (cur.id === 'wrong' && tl.by.wrong.cue.strike != null) { const f = frameOf(t - tl.by.wrong.cue.strike); if (f >= 0 && f < 1) inv = true; }
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H);
+  if (inv) {
+    ctx.save(); ctx.filter = 'grayscale(1) contrast(5) invert(1)'; ctx.drawImage(oc, 0, 0); ctx.restore();
+    ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = RED; ctx.fillRect(0, 0, W, H); ctx.globalCompositeOperation = 'source-over';
+  } else ctx.drawImage(oc, 0, 0);
+}
+
+window.DUR = 1; window.EV = [];
+window.render = render;
+window.TEXTS = () => LC.texts(TX);
+(async function init() {
+  try {
+    const { input, dur, opts } = await LC.load();
+    LANG = input.lang;
+    tl = LC.buildAuto(input, dur, opts);
+    window.DUR = tl.DUR; window.EV = tl.EV;
+    const sample = [tl.C.hook, tl.C.wrong, tl.C.right, tl.C.explain, tl.C.cta, tl.C.rightKo, tl.C.rightPh, tl.C.roman, ...tl.C.vocab.flatMap(v => [v.word, v.meaning, v.phonetic, v.type]),
+      ...tl.C.dialogue.flatMap(d => [d.line, d.ph, d.ko]), '@langcard.studio 0123456789'].join(' ');
+    await Promise.all(['LCKR', 'LCJP', 'LCSC'].map(f => document.fonts.load(`700 40px ${f}`, sample)));
+    await document.fonts.ready;
+    layout();
+    window.READY = true;
+  } catch (e) { console.error('init failed', e); throw e; }
+})();
+</script></body></html>

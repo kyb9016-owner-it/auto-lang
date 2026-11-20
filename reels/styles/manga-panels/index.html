@@ -1,0 +1,455 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>LangCard - manga-panels</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+@font-face{font-family:"LCKR";src:url("fonts/NotoSansKR-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCJP";src:url("fonts/NotoSansJP-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCSC";src:url("fonts/NotoSansSC-Bold.ttf");font-weight:700;font-display:block}
+html,body{margin:0;padding:0;background:#121212;overflow:hidden}
+canvas{display:block}
+</style></head>
+<body><canvas id="c"></canvas>
+<script src="common/timeline.js"></script>
+<script src="common/layout.js"></script>
+<script>
+// ===== LangCard / Manga Panels 스타일 — 1080x1920, 결정적 render(t) =====
+// 흑백 만화 한 페이지가 움직인다: 잉크+종이+스크린톤(점) + 한 가지 포인트 색(주홍=정답만), 칸이 박자에 맞춰 오른쪽→왼쪽으로 잉크로 열리고,
+// 글씨는 한 글자씩 쾅 하고 박히며(슬램), 집중선·말풍선·나레이션 상자·효과음(가타카나)으로 구성. 장면 길이·순서는 timeline.js(tl)가 정한다.
+const W = 1080, H = 1920, YC = 890;
+const SAFE = LCL.SAFE;
+const PAPER = '#F3F0E8', INK = '#121212', ACC = '#F03C1E';
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const ctx = cv.getContext('2d');
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const mc = mk(8, 8).getContext('2d');      // 글자 폭 측정용
+
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const eo = x => { x = clamp(x); return 1 - Math.pow(1 - x, 3); };
+const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const hstr = s => { let h = 2166136261; for (const c of String(s)) h = Math.imul(h ^ c.codePointAt(0), 16777619); return h >>> 0; };
+const prog = (t, a, d) => clamp((t - a) / d);
+const tlWrite = tx => LC.writeDur(tx);
+
+let tl = null, LAY = {}, TX = [], LANG = 'en', LX = null, grain = null, FULL = false;
+
+// ---------- 글꼴: 한글=Noto Sans KR Bold, 목표어 en=Lilita One(굵은 디스플레이), ja/zh=해당 Noto Sans Bold ----------
+function fontStr(kind, size) {
+  if (kind === 'ko') return `700 ${size}px LCKR, LCJP, LCSC, sans-serif`;
+  if (LANG === 'ja') return `700 ${size}px LCJP, LCKR, sans-serif`;
+  if (LANG === 'zh') return `700 ${size}px LCSC, LCKR, sans-serif`;
+  return `400 ${size}px "Lilita One", LCKR, sans-serif`;
+}
+
+// ---------- 스크린톤: 45° 망점(굵기=농도), 캐시 ----------
+const toneCache = {};
+function tone(key, w, h, fn, cell) {
+  if (toneCache[key]) return toneCache[key];
+  const c = mk(w, h), g = c.getContext('2d'); g.fillStyle = INK;
+  const ca = Math.SQRT1_2, n = Math.ceil(Math.hypot(w, h) / cell) + 2;
+  for (let gx = -n; gx <= n; gx++) for (let gy = -n; gy <= n; gy++) {
+    const px = w / 2 + (gx - gy) * ca * cell, py = h / 2 + (gx + gy) * ca * cell;
+    if (px < -cell || py < -cell || px > w + cell || py > h + cell) continue;
+    const cov = clamp(fn(clamp(px / w), clamp(py / h)), 0, .62);
+    if (cov < .035) continue;
+    g.beginPath(); g.arc(px, py, cell * Math.sqrt(cov / Math.PI), 0, 7); g.fill();
+  }
+  return toneCache[key] = c;
+}
+const vign = (k, o) => (u, v) => { const d = Math.hypot((u - .5) * 1.1, (v - .5)); return (d - (o || .18)) * k; };
+
+function makeGrain() {
+  const c = mk(512, 512), g = c.getContext('2d'), im = g.createImageData(512, 512), r = rng(99);
+  for (let i = 0; i < 512 * 512; i++) { const v = 150 + r() * 105; im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = v; im.data[i * 4 + 3] = 255; }
+  g.putImageData(im, 0, 0);
+  return ctx.createPattern(c, 'repeat');
+}
+
+// ---------- 칸(패널): 약간 기울어진 테두리 7px, 오른쪽→왼쪽으로 0.12초 잉크가 차오른다 ----------
+function mkPanel(x, y, w, h, seed) {
+  const r = rng(seed * 7919 + 3), sg = () => r() < .5 ? -1 : 1;
+  const dyT = sg() * (14 + r() * 10), dyB = sg() * (10 + r() * 10), oxT = r() * 16, oxB = r() * 16;
+  const pts = [[x + oxT, y + Math.max(0, -dyT)], [x + w, y + Math.max(0, dyT)], [x + w - oxB, y + h - Math.max(0, -dyB)], [x, y + h - Math.max(0, dyB)]];
+  return { x, y, w, h, pts, key: 'p' + seed + '_' + w + 'x' + h };
+}
+const polyPath = (c, pts) => { c.beginPath(); c.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]); c.closePath(); };
+const pin = (t, sc) => FULL ? 1 : prog(t, sc.t0, .12);
+function panel(c, P, p, tn, inner) {
+  if (p <= 0) return;
+  const xr = p >= 1 ? P.x - 40 : P.x + P.w + 20 - p * (P.w + 60);
+  c.save(); c.beginPath(); c.rect(xr, P.y - 40, P.x + P.w + 40 - xr, P.h + 80); c.clip();
+  c.save(); polyPath(c, P.pts); c.clip();
+  c.fillStyle = PAPER; c.fillRect(P.x - 5, P.y - 5, P.w + 10, P.h + 10);
+  if (tn) c.drawImage(tn, P.x, P.y);
+  if (inner) inner(c);
+  c.restore();
+  polyPath(c, P.pts); c.lineWidth = 7; c.strokeStyle = INK; c.lineJoin = 'miter'; c.miterLimit = 12; c.stroke();
+  c.restore();
+}
+// 나레이션 상자: 종이 + 5px 테두리 + 잉크 오프셋 그림자. s: 0~1 오른쪽→왼쪽 잉크 차오름
+function slab(c, x, y, w, h, s, sh) {
+  if (s <= 0) return; sh = sh == null ? 10 : sh;
+  c.save(); c.beginPath(); const xr = x + w + sh + 8 - clamp(s) * (w + sh + 16); c.rect(xr, y - 10, x + w + sh + 12 - xr, h + sh + 20); c.clip();
+  c.fillStyle = INK; c.fillRect(x + sh, y + sh, w, h);
+  c.fillStyle = PAPER; c.fillRect(x, y, w, h);
+  c.lineWidth = 5; c.strokeStyle = INK; c.lineJoin = 'miter'; c.strokeRect(x, y, w, h);
+  c.restore();
+}
+function rays(c, cx, cy, r0, R, n, seed, fill, wMul) {      // 집중선(끝이 가는 삼각 가시)
+  c.fillStyle = fill; const r = rng(seed);
+  for (let i = 0; i < n; i++) {
+    const a = (i + r() * .8) / n * Math.PI * 2, da = (.004 + r() * .011) * (wMul || 1), inn = r0 + r() * 70;
+    c.beginPath(); c.moveTo(cx + Math.cos(a) * inn, cy + Math.sin(a) * inn);
+    c.lineTo(cx + Math.cos(a - da) * R, cy + Math.sin(a - da) * R); c.lineTo(cx + Math.cos(a + da) * R, cy + Math.sin(a + da) * R); c.closePath(); c.fill();
+  }
+}
+function burstPath(c, cx, cy, a, b, seed, n) {              // 외침 말풍선(톱니)
+  const r = rng(seed); c.beginPath();
+  for (let i = 0; i < n * 2; i++) {
+    const ang = i / (n * 2) * Math.PI * 2, rad = (i % 2 ? .84 : 1.02) * (1 + (r() - .5) * .05);
+    const x = cx + Math.cos(ang) * a * rad, y = cy + Math.sin(ang) * b * rad; i ? c.lineTo(x, y) : c.moveTo(x, y);
+  }
+  c.closePath();
+}
+
+// ---------- 글씨: 한 글자씩 슬램(1.75→1, 감쇠 진동) · TEXTS 보고 ----------
+function chars(B) {
+  if (B._ch) return B._ch;
+  mc.font = fontStr(B.kind, B.size); const out = []; let k = 0;
+  B.lines.forEach((ln, li) => { let pre = ''; for (const ch of [...ln]) { const x0 = mc.measureText(pre).width; pre += ch; const x1 = mc.measureText(pre).width; out.push({ ch, li, x: x0, w: x1 - x0, k: /\s/.test(ch) ? -1 : k++ }); } });
+  B._N = Math.max(1, k); return B._ch = out;
+}
+// halo: 잉크 굵은 외곽+종이 외곽+채움(3겹, 칸 위 글자) / 아니면 종이 위 잉크 채움. o: {left, rep, boil, edge, dx}
+function put(c, B, t, t0, dur, fill, o) {
+  o = o || {}; if (t < t0) return;
+  const ch = chars(B), N = B._N, m = c.getTransform(), sz = B.size, bs = o.boil ? Math.floor(t * 12) : 0, seed = hstr(B.text);
+  if (o.rep !== false) {
+    let x0 = 1e9, x1 = -1e9; B.lines.forEach((ln, i) => { const lx = o.left != null ? o.left : B.cx - B.lw[i] / 2; x0 = Math.min(x0, lx); x1 = Math.max(x1, lx + B.lw[i]); });
+    TX.push({ id: B.id, text: B.text, x0: m.a * x0 + m.e, x1: m.a * x1 + m.e, y0: m.d * B.y + m.f, y1: m.d * (B.y + B.h) + m.f });
+  }
+  c.save(); c.font = fontStr(B.kind, sz); c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round'; c.miterLimit = 2;
+  for (const ps of (o.halo ? [0, 1, 2] : [2])) for (const e of ch) {
+    if (e.k < 0) continue;
+    const age = t - (t0 + dur * .85 * e.k / N); if (age < 0) continue;
+    const R = rng(seed + e.k * 7)(), sl = age < .4 ? Math.exp(-age * 14) * Math.cos(age * 18) : 0;
+    const s = 1 + .75 * sl, rot = (R - .5) * .3 * Math.exp(-age * 9);
+    const lx = o.left != null ? o.left : B.cx - B.lw[e.li] / 2;
+    const jx = o.boil ? (rng(seed + e.k * 31 + bs * 977)() - .5) * 2.4 : 0, jy = o.boil ? (rng(seed + e.k * 53 + bs * 613)() - .5) * 2.4 : 0;
+    c.save(); c.translate(lx + e.x + e.w / 2 + jx + (o.dx || 0), B.y + e.li * B.lhp + B.lhp / 2 + jy); c.rotate(rot); c.scale(s, s);
+    if (ps === 0) { c.strokeStyle = INK; c.lineWidth = sz * .30; c.strokeText(e.ch, 0, 0); }
+    else if (ps === 1) { c.strokeStyle = PAPER; c.lineWidth = sz * .20; c.strokeText(e.ch, 0, 0); }
+    else {
+      if (o.edge) { c.strokeStyle = INK; c.lineWidth = sz * o.edge; c.strokeText(e.ch, 0, 0); }
+      c.fillStyle = fill; c.fillText(e.ch, 0, 0);
+      if (!o.halo && !o.edge) { c.strokeStyle = fill; c.lineWidth = sz * .022; c.strokeText(e.ch, 0, 0); }   // 굵은 펜 느낌
+    }
+    c.restore();
+  }
+  c.restore();
+}
+// 효과음 글자(가타카나, 장식): 잉크 .34 / 종이 .27 / 잉크 채움, 12fps 보일링, 슬램
+function sfxText(c, str, cx, cy, size, rot, t, t0) {
+  if (t < t0) return;
+  c.save(); c.font = `700 ${size}px LCJP, LCKR, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+  const arr = [...str], ws = arr.map(ch => c.measureText(ch).width * .96), tot = ws.reduce((a, b) => a + b, 0), bs = Math.floor(t * 12);
+  c.translate(cx, cy); c.rotate(rot);
+  for (const ps of [0, 1, 2]) { let x = -tot / 2;
+    arr.forEach((ch, i) => {
+      const age = t - (t0 + i * .06), w = ws[i]; x += w; if (age < 0) return;
+      const sl = age < .4 ? Math.exp(-age * 13) * Math.cos(age * 17) : 0, s = 1 + .8 * sl, rr = (rng(hstr(str) + i * 5)() - .5) * .35;
+      const jx = (rng(bs * 31 + i)() - .5) * 3, jy = (rng(bs * 17 + i * 3)() - .5) * 3;
+      c.save(); c.translate(x - w / 2 + jx, jy + (rng(i + 9)() - .5) * size * .12); c.rotate(rr); c.scale(s, s);
+      if (ps === 0) { c.strokeStyle = INK; c.lineWidth = size * .34; c.strokeText(ch, 0, 0); }
+      else if (ps === 1) { c.strokeStyle = PAPER; c.lineWidth = size * .27; c.strokeText(ch, 0, 0); }
+      else { c.fillStyle = INK; c.fillText(ch, 0, 0); }
+      c.restore();
+    });
+  }
+  c.restore();
+}
+const popS = age => age < 0 ? 0 : 1 + .45 * Math.exp(-age * 12) * Math.cos(age * 20);
+function iconX(c, x, y, t, t0) {
+  const age = t - t0; if (age < 0) return; const s = popS(age), p1 = prog(age, 0, .12), p2 = prog(age, .1, .12);
+  c.save(); c.translate(x, y); c.scale(s, s); c.lineCap = 'round';
+  [[58, PAPER], [38, INK]].forEach(([lw, col]) => { c.strokeStyle = col; c.lineWidth = lw + (col === PAPER ? 22 : 0) - (col === PAPER ? 0 : 0);
+    c.beginPath(); c.moveTo(-58, -58); c.lineTo(lerp(-58, 58, p1), lerp(-58, 58, p1)); c.stroke();
+    if (p2 > 0) { c.beginPath(); c.moveTo(58, -58); c.lineTo(lerp(58, -58, p2), lerp(-58, 58, p2)); c.stroke(); } });
+  c.restore();
+}
+function iconCheck(c, x, y, t, t0) {
+  const age = t - t0; if (age < 0) return; const s = popS(age), p = prog(age, 0, .22);
+  const pts = [[-66, 2], [-14, 62], [74, -70]], L1 = Math.hypot(52, 60), L2 = Math.hypot(88, 132), tot = L1 + L2, want = p * tot;
+  const path = () => { c.beginPath(); c.moveTo(pts[0][0], pts[0][1]);
+    if (want <= L1) { const u = want / L1; c.lineTo(lerp(pts[0][0], pts[1][0], u), lerp(pts[0][1], pts[1][1], u)); }
+    else { c.lineTo(pts[1][0], pts[1][1]); const u = (want - L1) / L2; c.lineTo(lerp(pts[1][0], pts[2][0], u), lerp(pts[1][1], pts[2][1], u)); } };
+  c.save(); c.translate(x, y); c.scale(s, s); c.lineCap = 'round'; c.lineJoin = 'round';
+  [[74, PAPER], [56, INK], [38, ACC]].forEach(([lw, col]) => { c.strokeStyle = col; c.lineWidth = lw; path(); c.stroke(); });
+  c.restore();
+}
+function brushLine(c, x0, y0, x1, y1, p, w, col) {      // 끝이 가는 붓 선(진행 p)
+  if (p <= 0) return; const ex = lerp(x0, x1, p), ey = lerp(y0, y1, p), dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy), nx = -dy / L, ny = dx / L;
+  c.fillStyle = col; c.beginPath(); c.moveTo(x0, y0); c.lineTo(lerp(x0, ex, .15) + nx * w / 2, lerp(y0, ey, .15) + ny * w / 2); c.lineTo(ex, ey);
+  c.lineTo(lerp(x0, ex, .15) - nx * w / 2, lerp(y0, ey, .15) - ny * w / 2); c.closePath(); c.fill();
+}
+
+// ---------- 레이아웃(폰트 로드 후 1회) ----------
+// 줄 수 선택: 한 줄에 90px 이상으로 들어가면 1줄, 아니면 2줄(≥90px), 아니면 3줄(하한까지)
+function pickLines(text, kind, s0, s1, mw) {
+  for (const ml of [1, 2]) { const b = LX.fit(text, kind, { maxW: mw, maxLines: ml, s0, s1: 90, lh: 1.22 }); if (b.lines.length <= ml && b.w <= mw + .5 && b.size >= 90) return ml; }
+  return 3;
+}
+function layout() {
+  const C = tl.C, L = {}, M = LCL.MIN, SF = LCL.SAFE;
+  LX = LCL.make(mc, fontStr);
+  // 훅: 처음 2초 화면 가득(≥110px) 외침 말풍선. 같은 줄바꿈 그대로 52px 나레이션 상자(제목)로 줄어 위에 남는다
+  let hb = LX.fit(C.hook, 'ko', { maxW: 820, maxLines: 3, s0: 150, s1: M.hook, lh: 1.22 });
+  if (hb.lines.length > 3 || hb.w > 821) hb = LX.fit(C.hook, 'ko', { maxW: 820, maxLines: 4, s0: M.hook, s1: 80, lh: 1.22 });
+  hb.id = 'hook'; hb.cx = 540; hb.y = YC - 20 - hb.h / 2;
+  const f = Math.min(1, (M.title + 2) / hb.size), TT = 304, PAD = 24;
+  L.hook = { B: hb, f, cy: hb.y + hb.h / 2, titleTop: TT, a: hb.w / 2 + 90, b: hb.h / 2 + 80, pad: PAD };
+  const titleBottom = TT + f * hb.h + PAD + 12;
+  const PY0 = titleBottom + 24, PY1 = 1512, mw = 820;
+  // WRONG / RIGHT: 제목 아래 큰 칸 한 개. 왼쪽 위에 아이콘(X/체크)+효과음, 아래 나레이션 상자에 글
+  const stackBox = (items, y0, y1) => { items.forEach(it => { if (it.id === 'wrong' || it.id === 'right') it.maxLines = pickLines(it.text, it.kind, it.s0, it.s1, mw); }); const st = LX.stack(items, y0, y1, mw); const sh = Math.max(0, (y1 - st.bottom) * .5); st.forEach(b => b.y += sh); const top = st[0].y, bot = st.bottom + sh; return { items: st, slab: [100, top - 34, 880, bot - top + 68] }; };
+  L.wrong = Object.assign({ P: mkPanel(60, PY0, 960, PY1 - PY0, 11), icy: PY0 + 100 }, stackBox([
+    { id: 'wrong', text: C.wrong, kind: 'tg', s0: 130, s1: M.body, maxLines: 3, color: INK, lh: 1.22 },
+    { id: 'wrongPh', text: C.wrongPh, kind: 'ko', s0: 68, s1: 40, maxLines: 2, color: INK, gap: 40, lh: 1.28 }], PY0 + 205, 1450));
+  L.right = Object.assign({ P: mkPanel(60, PY0, 960, PY1 - PY0, 12), icy: PY0 + 100 }, stackBox([
+    { id: 'right', text: C.right, kind: 'tg', s0: 130, s1: M.body, maxLines: 3, color: ACC, lh: 1.22 },
+    { id: 'rightPh', text: C.rightPh, kind: 'ko', s0: 64, s1: 40, maxLines: 2, color: INK, gap: 34, lh: 1.28 },
+    { id: 'roman', text: C.roman, kind: 'tg', s0: 56, s1: 36, maxLines: 2, color: INK, gap: 12, lh: 1.25 },
+    { id: 'rightKo', text: C.rightKo, kind: 'ko', s0: 70, s1: 44, maxLines: 3, color: INK, gap: 40, lh: 1.3 }], PY0 + 205, 1450));
+  L.right.items.forEach(b => { if (b.id === 'rightKo') b.color = INK; });
+  // EXPLAIN: 한 줄 요약, 큰 나레이션 상자 + 집중선
+  if (C.explain) {
+    const b = LX.fit(C.explain, 'ko', { maxW: 780, maxLines: 5, s0: 104, s1: 60, lh: 1.36 });
+    b.id = 'explain'; b.cx = 540; b.y = YC - b.h / 2; b.color = INK;
+    L.explain = { P: mkPanel(60, 300, 960, 1200, 5), B: b, slab: [540 - b.w / 2 - 50, b.y - 50, b.w + 100, b.h + 100] };
+  }
+  // DIALOGUE: 턴마다 칸 하나 + 말풍선(수퍼타원) + 꼬리
+  { const d = LX.dialogue(C.dialogue, { y0: 380, y1: 1400, gap: 200, maxInner: 740 });
+    d.forEach((r, i) => {
+      const cxb = r.x + r.w / 2, a = 1.07 * r.w / 2;
+      let dx = 0; if (r.side === 'L') dx = Math.max(0, 80 - (cxb - a)); else dx = -Math.max(0, (cxb + a) - 1000);
+      r.x += dx; [r.a, r.b, r.c].forEach(p => p && (p.cx += dx));
+      r.cxb = cxb + dx; r.cyb = r.y + r.h / 2; r.A = a; r.B2 = 1.12 * r.h / 2;
+      r.P = mkPanel(60, r.y - 70, 960, r.h + 170, 20 + i);
+      [r.a, r.b, r.c].forEach((p, k) => { if (p) p.color = (k === 0 && i === C.hl) ? ACC : INK; });
+    });
+    L.dialogue = d; }
+  // VOCAB: 단어마다 칸 하나
+  { const n = C.vocab.length;
+    if (n) {
+      const ph = Math.min(600, (1200 - 50 * (n - 1)) / n), tot = ph * n + 50 * (n - 1), top0 = Math.max(300, YC - tot / 2);
+      L.vocab = C.vocab.map((v, i) => {
+        const w = LX.fit(v.word, 'tg', { maxW: 640, maxLines: 1, s0: 140, s1: 72, lh: 1.15 }); w.id = 'v' + i + 'w';
+        const ty = v.type ? LX.fit(v.type, 'ko', { maxW: 230, maxLines: 1, s0: 44, s1: 32, lh: 1.2 }) : null; if (ty) ty.id = 'v' + i + 't';
+        const m = v.meaning ? LX.fit(v.meaning, 'ko', { maxW: 780, maxLines: 2, s0: 66, s1: 44, lh: 1.28 }) : null; if (m) m.id = 'v' + i + 'm';
+        const p = v.phonetic ? LX.fit(v.phonetic, 'ko', { maxW: 780, maxLines: 1, s0: 54, s1: 38, lh: 1.25 }) : null; if (p) p.id = 'v' + i + 'p';
+        const P = mkPanel(60, top0 + i * (ph + 50), 960, ph, 30 + i);
+        const sub = (m ? m.h : 0) + (p ? p.h + 8 : 0), boxH = sub + 44, h = w.h + 22 + (sub ? boxH : 0), y = P.y + (ph - h) / 2;
+        w.y = y; w.cx = 0; let yy = y + w.h + 22;
+        if (m) { m.y = yy + 22; yy = m.y + m.h; } if (p) p.y = (m ? yy + 8 : yy + 22);
+        const slabR = sub ? [100, y + w.h + 22, 880, boxH] : null;
+        if (ty) ty.y = y + (w.h - ty.h) / 2;
+        return { w, ty, m, p, P, slab: slabR, tag: ty ? [SF.x1 - 10 - ty.lw[0] - 36, ty.y - 14, ty.lw[0] + 72, ty.h + 28] : null };
+      });
+    } }
+  // CTA: 책갈피 아이콘 + 나레이션 상자 + 간기(奥付)식 이중선 상자에 핸들
+  { const b = LX.fit(C.cta || C.handle, 'ko', { maxW: 820, maxLines: 4, s0: 108, s1: 60, lh: 1.28 }); b.id = 'cta'; b.cx = 540; b.color = INK;
+    const h = LX.fit(C.handle, 'ko', { maxW: 820, maxLines: 1, s0: 84, s1: 48, lh: 1.2 }); h.id = 'handle'; h.cx = 540; h.color = INK;
+    const tot = 170 + 56 + (b.h + 80) + 64 + (h.h + 56); let y = Math.max(330, YC - tot / 2);
+    L.cta = { P: mkPanel(60, 300, 960, 1200, 7), iconY: y, b, h, sb: [540 - b.w / 2 - 40, y + 226, b.w + 80, b.h + 80] };
+    b.y = y + 226 + 40; const hy = y + 226 + b.h + 80 + 64; h.y = hy + 28; L.cta.sh = [540 - h.w / 2 - 40, hy, h.w + 80, h.h + 56]; }
+  L.titleBottom = titleBottom;
+  LAY = L;
+}
+
+// ---------- 훅: 집중선 + 외침 말풍선 → 나레이션 상자(제목)로 축소 ----------
+function drawHook(c, t) {
+  const L = LAY.hook, B = L.B, hk = tl.by.hook, [m0, m1] = hk.cue.move, mv = ease((t - m0) / (m1 - m0));
+  if (t >= hk.titleUntil) return;
+  if (t < hk.t1) {      // 배경 집중선: 12fps 보일링, 이동 구간에 안쪽 반지름이 벌어지며(시간 정지) 사라진다
+    const sd = Math.floor(t * 12);
+    c.save(); rays(c, 540, L.cy, 330 + mv * 1500, 1700, 120, 500 + sd * 13, INK, 1.0);
+    rays(c, 540, L.cy, 560 + mv * 1500, 1700, 60, 900 + sd * 7, INK, .55); c.restore();
+  }
+  const sc = (t < .6 ? 1 + .12 * Math.exp(-t * 9) : 1) * lerp(1, L.f, mv), tx = 540, ty = lerp(L.cy, L.titleTop + L.f * B.h / 2, mv);
+  const shake = t > .05 && t < .6 ? Math.exp(-(t - .05) * 9) : 0;
+  c.save(); c.translate(tx + Math.sin(t * 95) * 10 * shake, ty + Math.cos(t * 83) * 7 * shake); c.scale(sc, sc); c.translate(-540, -L.cy);
+  const bs = 1 - eo(mv);
+  if (bs > .01) {      // 외침 말풍선(종이 + 잉크 그림자)
+    const sd = Math.floor(t * 12), r = rng(sd * 5 + 1), cyy = L.cy;
+    c.save(); c.translate(540, cyy); c.scale(bs, bs); c.translate(-540, -cyy);
+    c.save(); c.translate(16, 16); burstPath(c, 540, cyy, L.a, L.b, 77 + sd % 3, 18); c.fillStyle = INK; c.fill(); c.restore();
+    burstPath(c, 540, cyy, L.a, L.b, 77 + sd % 3, 18); c.fillStyle = PAPER; c.fill(); c.lineWidth = 9; c.strokeStyle = INK; c.lineJoin = 'miter'; c.stroke();
+    c.restore();
+  }
+  const bp = ease(mv);
+  if (bp > .02) {       // 나레이션 상자
+    const pd = L.pad / L.f * bp, sh = 9 / L.f * bp, x = 540 - B.w / 2 - pd, y = B.y - pd, w = B.w + 2 * pd, h = B.h + 2 * pd;
+    c.fillStyle = INK; c.fillRect(x + sh, y + sh, w, h); c.fillStyle = PAPER; c.fillRect(x, y, w, h); c.lineWidth = 5 / L.f * bp; c.strokeStyle = INK; c.strokeRect(x, y, w, h);
+  }
+  put(c, B, t, 0, .6, INK, { rep: true });
+  c.restore();
+}
+
+// ---------- 장면 ----------
+function drawWrong(c, t, sc) {
+  const cu = sc.cue, L = LAY.wrong, rep = t < sc.t1, p = pin(t, sc);
+  const tn = tone(L.P.key + 'w', L.P.w, L.P.h, vign(1.5, .16), 13);
+  panel(c, L.P, p, tn, g => {
+    iconX(g, 250, L.icy, t, cu.icon);
+    sfxText(g, 'ガーン', 735, L.icy, 104, -.12, t, cu.icon + .08);
+    const age = t - cu.strike, shk = age > 0 ? Math.exp(-age * 11) : 0, dx = Math.sin(t * 110) * 7 * shk, dy = Math.cos(t * 90) * 4 * shk;
+    g.save(); g.translate(dx, dy);
+    slab(g, L.slab[0], L.slab[1], L.slab[2], L.slab[3], prog(t, sc.t0 + .02, .14));
+    L.items.forEach(B => put(g, B, t, B.id === 'wrong' ? cu.text : cu.ph, tlWrite(B.text), INK, { rep }));
+    const W0 = L.items[0];      // 음성이 끝나면 오답 줄에 잉크 슬래시(종이 속심)
+    if (W0 && t > cu.strike) W0.lines.forEach((ln, i) => {
+      const lx = 540 - W0.lw[i] / 2, my = W0.y + i * W0.lhp + W0.lhp * .5, pp = prog(t, cu.strike + i * .12, .16);
+      if (pp <= 0) return; const ex = lerp(lx - 24, lx + W0.lw[i] + 24, pp), ey = lerp(my + 16, my - 16, pp);
+      g.save(); g.lineCap = 'round'; g.strokeStyle = INK; g.lineWidth = 24; g.beginPath(); g.moveTo(lx - 24, my + 16); g.lineTo(ex, ey); g.stroke();
+      g.strokeStyle = PAPER; g.lineWidth = 7; g.beginPath(); g.moveTo(lx - 24, my + 16); g.lineTo(ex, ey); g.stroke(); g.restore();
+    });
+    g.restore();
+  });
+}
+function drawRight(c, t, sc) {
+  const cu = sc.cue, L = LAY.right, rep = t < sc.t1, p = pin(t, sc), st = { right: cu.text, rightPh: cu.ph, roman: cu.roman, rightKo: cu.ko };
+  const tn = tone(L.P.key + 'r', L.P.w, L.P.h, (u, v) => .08 + .34 * v * v, 12);
+  panel(c, L.P, p, tn, g => {
+    const sd = Math.floor(t * 12);      // 화이트아웃 빛줄기(톤을 지워서 빛을 그린다)
+    rays(g, 540, L.slab[1] + L.slab[3] / 2, 330, 1500, 70, 300 + sd * 11, PAPER, 1.4);
+    iconCheck(g, 250, L.icy, t, cu.icon);
+    sfxText(g, 'ピンポーン', 720, L.icy, 92, -.1, t, cu.icon + .08);
+    slab(g, L.slab[0], L.slab[1], L.slab[2], L.slab[3], prog(t, sc.t0 + .02, .14));
+    L.items.forEach(B => put(g, B, t, st[B.id], tlWrite(B.text), B.color, { rep, edge: B.id === 'right' ? .07 : 0 }));
+    const R = L.items[0]; if (R && t > cu.text + tlWrite(R.text)) {      // 정답 줄 아래 붓 밑줄(주홍)
+      const lx = 540 - R.lw[R.lines.length - 1] / 2, uy = R.y + R.h + 2, pp = prog(t, cu.text + tlWrite(R.text), .22);
+      brushLine(g, lx - 10, uy + 2, lx + R.lw[R.lines.length - 1] + 10, uy - 6, pp, 20, INK); brushLine(g, lx, uy + 2, lx + R.lw[R.lines.length - 1], uy - 5, pp, 10, ACC);
+    }
+  });
+}
+function drawExplain(c, t, sc) {
+  const cu = sc.cue, L = LAY.explain, rep = t < sc.t1, p = pin(t, sc);
+  const tn = tone(L.P.key + 'e', L.P.w, L.P.h, vign(.9, .22), 14);
+  panel(c, L.P, p, tn, g => {
+    const sd = Math.floor(t * 12); rays(g, 540, 900, 560, 1500, 90, 40 + sd * 9, INK, .9);
+    sfxText(g, 'ハッ', 250, 450, 112, -.14, t, cu.box + .05);
+    slab(g, L.slab[0], L.slab[1], L.slab[2], L.slab[3], prog(t, cu.box, .15));
+    put(g, L.B, t, cu.text, tlWrite(L.B.text), INK, { rep });
+  });
+}
+function balloon(g, t, r, cu, i) {
+  const hl = i === tl.C.hl, age = t - cu.bubble; if (age < 0) return;
+  const s = popS(age) * .98 + .02, cx = r.cxb, cy = r.cyb, A = r.A, B = r.B2, n = 3.6, left = r.side === 'L';
+  const path = () => { g.beginPath(); for (let k = 0; k <= 64; k++) { const a = k / 64 * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+      const x = cx + A * Math.sign(ca) * Math.pow(Math.abs(ca), 2 / n), y = cy + B * Math.sign(sa) * Math.pow(Math.abs(sa), 2 / n); k ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); };
+  const tail = () => { const bx = cx + (left ? -.30 : .30) * A, by = cy + B - 6, tx = cx + (left ? -.52 : .52) * A, ty = cy + B + 60;
+    g.beginPath(); g.moveTo(bx - 34, by - 8); g.lineTo(tx, ty); g.lineTo(bx + 34, by - 8); g.closePath(); };
+  g.save(); g.translate(cx, cy); g.scale(s, s); g.translate(-cx, -cy);
+  g.lineJoin = 'miter'; g.miterLimit = 8; g.strokeStyle = INK; g.lineWidth = hl ? 18 : 14; path(); g.stroke(); tail(); g.stroke();
+  g.fillStyle = PAPER; path(); g.fill(); tail(); g.fill();
+  g.restore();
+}
+function drawDialogue(c, t, sc) {
+  const rep = t < sc.t1;
+  LAY.dialogue.forEach((r, i) => {
+    const cu = sc.cue.turns[i], p = i === 0 ? pin(t, sc) : prog(t, cu.bubble - .15, .12);
+    const tn = tone(r.P.key + 'd' + i, r.P.w, r.P.h, (u, v) => .06 + .30 * (1 - v) * (1 - v), 12);
+    panel(c, r.P, p, tn, g => {
+      balloon(g, t, r, cu, i);
+      [[r.a, cu.line], [r.b, cu.ph], [r.c, cu.ko]].forEach(([B, s0]) => B && put(g, B, t, s0, tlWrite(B.text), B.color, { rep }));
+    });
+  });
+}
+function drawVocab(c, t, sc) {
+  const rep = t < sc.t1;
+  LAY.vocab.forEach((k, i) => {
+    const cu = sc.cue.cards[i], p = FULL && i === 0 ? 1 : prog(t, cu.word - .05, .12);
+    const tn = tone(k.P.key + 'v', k.P.w, k.P.h, (u, v) => .10 + .12 * u, 12);
+    panel(c, k.P, p, tn, g => {
+      if (k.slab) slab(g, k.slab[0], k.slab[1], k.slab[2], k.slab[3], prog(t, cu.meaning - .05, .14));
+      put(g, k.w, t, cu.word, tlWrite(k.w.text), ACC, { rep, left: SAFE.x0 + 20, halo: true, edge: 0 });
+      if (k.ty) { slab(g, k.tag[0], k.tag[1], k.tag[2], k.tag[3], prog(t, cu.type, .12), 6); put(g, k.ty, t, cu.type, tlWrite(k.ty.text), INK, { rep, left: SAFE.x1 - 10 - k.ty.lw[0] - 0 }); }
+      if (k.m) put(g, k.m, t, cu.meaning, tlWrite(k.m.text), INK, { rep, left: 130 });
+      if (k.p) put(g, k.p, t, cu.ph, tlWrite(k.p.text), INK, { rep, left: 130 });
+    });
+  });
+}
+function drawCta(c, t, sc) {
+  const cu = sc.cue, L = LAY.cta, rep = t < sc.t1, p = pin(t, sc);
+  const tn = tone(L.P.key + 'c', L.P.w, L.P.h, vign(1.1, .24), 13);
+  panel(c, L.P, p, tn, g => {
+    const sd = Math.floor(t * 12); rays(g, 540, 900, 600, 1500, 80, 70 + sd * 5, INK, .8);
+    const age = t - cu.icon;      // 책갈피(저장) 아이콘 — 주홍
+    if (age >= 0) { const s = popS(age), x = 540, y = L.iconY; g.save(); g.translate(x, y + 85); g.scale(s, s);
+      const bm = () => { g.beginPath(); g.moveTo(-62, -85); g.lineTo(62, -85); g.lineTo(62, 85); g.lineTo(0, 40); g.lineTo(-62, 85); g.closePath(); };
+      g.lineJoin = 'miter'; g.strokeStyle = PAPER; g.lineWidth = 36; bm(); g.stroke(); g.strokeStyle = INK; g.lineWidth = 20; bm(); g.stroke(); g.fillStyle = ACC; bm(); g.fill(); g.restore(); }
+    slab(g, L.sb[0], L.sb[1], L.sb[2], L.sb[3], prog(t, sc.t0 + .02, .14));
+    put(g, L.b, t, cu.text, tlWrite(L.b.text), INK, { rep });
+    slab(g, L.sh[0], L.sh[1], L.sh[2], L.sh[3], prog(t, cu.handle - .1, .14), 8);
+    g.save(); g.lineWidth = 2.5; g.strokeStyle = INK; if (t > cu.handle - .1) g.strokeRect(L.sh[0] + 8, L.sh[1] + 8, L.sh[2] - 16, L.sh[3] - 16); g.restore();
+    put(g, L.h, t, cu.handle, tlWrite(L.h.text), INK, { rep });
+  });
+}
+const DRAW = { hook: () => {}, wrong: drawWrong, right: drawRight, explain: drawExplain, dialogue: drawDialogue, vocab: drawVocab, cta: drawCta };
+
+// ---------- 합성 ----------
+// 장면 전환: 비스듬한 잉크 띠가 왼쪽→오른쪽으로 훑는다. 띠 오른쪽=옛 장면, 왼쪽=새 장면(이미 시작). 장면 시작마다 2프레임 임팩트(흑백 반전).
+const SLANT = 300;
+function render(t) {
+  TX = [];
+  if (!tl) return;
+  const sc = tl.scenes, c = ctx;
+  c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
+  c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
+  let i = 0; for (let k = 0; k < sc.length; k++) if (sc[k].t0 <= t) i = k;
+  const cur = sc[i], prev = i > 0 ? sc[i - 1] : null, hk = tl.by.hook;
+  const wiping = !!(prev && prev.wipe && t >= prev.t1 && t < prev.t1 + prev.wipe);
+  const titleOn = t < hk.titleUntil, titleWipe = wiping && prev.id === 'right';
+  if (wiping) {
+    const p = ease((t - prev.t1) / prev.wipe), xt = lerp(-30, W + 330, p), xb = xt - SLANT;
+    c.save(); c.beginPath(); c.moveTo(xt, 0); c.lineTo(W + 10, 0); c.lineTo(W + 10, H); c.lineTo(xb, H); c.closePath(); c.clip();
+    FULL = false; DRAW[prev.id](c, t, prev); if (titleWipe) drawHook(c, t); c.restore();
+    c.save(); c.beginPath(); c.moveTo(-10, 0); c.lineTo(xt, 0); c.lineTo(xb, H); c.lineTo(-10, H); c.closePath(); c.clip();
+    FULL = true; DRAW[cur.id](c, t, cur); FULL = false; c.restore();
+    if (titleOn && !titleWipe) drawHook(c, t);
+    c.save(); c.fillStyle = INK; c.beginPath(); c.moveTo(xt - 34, 0); c.lineTo(xt + 34, 0); c.lineTo(xb + 34, H); c.lineTo(xb - 34, H); c.closePath(); c.fill();
+    c.strokeStyle = PAPER; c.lineWidth = 4; c.beginPath(); c.moveTo(xt, 0); c.lineTo(xb, H); c.stroke(); c.restore();
+  } else {
+    if (titleOn) drawHook(c, t);
+    DRAW[cur.id](c, t, cur);
+  }
+  // 페이지 테두리 + 종이 입자(10% 곱하기)
+  c.lineWidth = 7; c.strokeStyle = INK; c.strokeRect(22, 22, W - 44, H - 44);
+  c.save(); c.globalCompositeOperation = 'multiply'; c.globalAlpha = .1; c.fillStyle = grain; c.fillRect(0, 0, W, H); c.restore();
+  // 임팩트 프레임: 종이와 잉크를 2프레임 뒤집는다
+  if (sc.some(s => t >= s.t0 && t < s.t0 + .083)) { c.save(); c.globalCompositeOperation = 'difference'; c.fillStyle = '#fff'; c.fillRect(0, 0, W, H); c.restore(); }
+}
+
+window.DUR = 1; window.EV = [];
+window.render = render;
+window.TEXTS = () => LC.texts(TX);
+// 검수용: y 300~1500에서 종이색이 아닌 픽셀 수(빈 화면 구간 검사) — chalkboard와 같은 이름도 제공
+window.INKPIX = window.CHALKPIX = () => { const d = ctx.getImageData(0, 300, W, 1200).data; let n = 0; for (let i = 0; i < d.length; i += 64) if (d[i] < 150) n++; return n; };
+(async function init() {
+  try {
+    const { input, dur, opts } = await LC.load();
+    LANG = input.lang;
+    tl = LC.buildAuto(input, dur, opts);
+    window.DUR = tl.DUR; window.EV = tl.EV;
+    const sample = [tl.C.hook, tl.C.wrong, tl.C.right, tl.C.explain, tl.C.cta, tl.C.rightKo, tl.C.rightPh, tl.C.roman, ...tl.C.vocab.flatMap(v => [v.word, v.meaning, v.phonetic, v.type]),
+      ...tl.C.dialogue.flatMap(d => [d.line, d.ph, d.ko]), '@langcard.studio 0123456789 ガーンピンポーンハッ'].join(' ');
+    await Promise.all(['LCKR', 'LCJP', 'LCSC', 'Lilita One'].map(f => document.fonts.load(`700 40px "${f}"`, sample)));
+    await document.fonts.load('400 40px "Lilita One"', sample);
+    await document.fonts.ready;
+    grain = makeGrain();
+    layout();
+    window.READY = true;
+  } catch (e) { console.error('init failed', e); throw e; }
+})();
+</script></body></html>

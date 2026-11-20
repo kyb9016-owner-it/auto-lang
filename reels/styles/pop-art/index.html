@@ -1,0 +1,383 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>LangCard - pop-art</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+@font-face{font-family:"LCKR";src:url("fonts/NotoSansKR-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCJP";src:url("fonts/NotoSansJP-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCSC";src:url("fonts/NotoSansSC-Bold.ttf");font-weight:700;font-display:block}
+html,body{margin:0;padding:0;background:#000;overflow:hidden}
+canvas{display:block}
+</style></head>
+<body><canvas id="c"></canvas>
+<script src="common/timeline.js"></script>
+<script src="common/layout.js"></script>
+<script>
+// ===== LangCard / Pop-art 스타일 — 1080x1920, 결정적 render(t) =====
+// 60년대 실크스크린 포스터 문법: 종이 + 빨강·노랑·파랑 3원색 + 검정 키라인, 페이지에 고정된 45° 벤데이 도트,
+// 색판이 살짝 어긋난 오프셋(미스레지스트레이션), 스탬프로 "찍혀" 들어오는 글자. 그라디언트·그림자 번짐·투명 없음.
+// 장면 전환 = 스퀴지가 훑고 지나가며 새 색판이 깔린다(검정 키 띠 + 노랑 띠).
+const W = 1080, H = 1920;
+const SAFE = LCL.SAFE;
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const ctx = cv.getContext('2d');
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const mc = mk(8, 8).getContext('2d');          // 측정 전용
+
+const KEY = '#141414', RED = '#E4232B', YEL = '#FFD21F', BLU = '#1E62B0', PAPER = '#F8F2E2', YEL2 = '#FFE678', GREY = '#5A5546';
+// 장면 바탕(순환): 노랑 → 빨강 → 파랑. 바탕 위 도트는 보색 계열(바탕과 같은 색 금지)
+const GROUND = [
+  { bg: YEL, dot: RED },
+  { bg: RED, dot: YEL },
+  { bg: BLU, dot: PAPER },
+];
+
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const eo = x => { x = clamp(x); return 1 - Math.pow(1 - x, 3); };
+const prog = (t, a, d) => clamp((t - a) / d);
+
+let tl = null, LAY = {}, TX = [], LANG = 'en', LX = null;
+
+const STACK = { ko: 'Fredoka, LCKR, LCJP, LCSC, sans-serif', tg: null };
+const fontStr = (kind, size) => `700 ${size}px ${STACK[kind]}`;
+
+// ---------- 벤데이 도트(45° 격자, 페이지 고정) ----------
+// 45°로 돌린 정사각 격자 = 간격 d=cell/√2 의 엇갈린 격자. dens(x,y)는 면적 비율 → 반지름.
+function dots(c, color, cell, dens, ax, ay) {
+  const d = cell / Math.SQRT2, k0 = Math.floor((0 - ax) / d) - 1, k1 = Math.ceil((W - ax) / d) + 1, m0 = Math.floor((0 - ay) / d) - 1, m1 = Math.ceil((H - ay) / d) + 1;
+  c.fillStyle = color; c.beginPath();
+  for (let m = m0; m <= m1; m++) {
+    const y = ay + m * d;
+    for (let k = k0; k <= k1; k++) {
+      if (((k + m) & 1) !== 0) continue;
+      const x = ax + k * d, r = cell * Math.sqrt(dens(x, y) / Math.PI);
+      if (r < .6) continue;
+      c.moveTo(x + r, y); c.arc(x, y, r, 0, 6.2832);
+    }
+  }
+  c.fill();
+}
+// 가장자리로 갈수록 점이 커지는 바탕 도트 밀도 (중앙은 성기게 → 글자 뒤가 조용)
+const groundDens = (x, y) => .10 + .30 * clamp(Math.hypot((x - 540) * .9, (y - 980) * .55) / 1000);
+
+function drawGround(c, t, idx, hook) {
+  const g = GROUND[idx % 3];
+  c.fillStyle = g.bg; c.fillRect(0, 0, W, H);
+  if (hook) {
+    // 훅: 선버스트(노랑 두 톤) + 점이 코인만 하게 큰 데서 로그 스케일로 당겨 나오는 "도트 풀"
+    const n = 24, a0 = -.1 * Math.exp(-t * 3);
+    c.fillStyle = YEL2;
+    for (let i = 0; i < n; i += 2) {
+      const a = a0 + i * 6.2832 / n, b = a0 + (i + 1) * 6.2832 / n;
+      c.beginPath(); c.moveTo(540, 930); c.lineTo(540 + Math.cos(a) * 2600, 930 + Math.sin(a) * 2600); c.lineTo(540 + Math.cos(b) * 2600, 930 + Math.sin(b) * 2600); c.closePath(); c.fill();
+    }
+    const cell = 22 * Math.exp(Math.log(6) * (1 - eo(t / 1.3)));
+    dots(c, RED, cell, (x, y) => .14 + .34 * clamp(Math.hypot((x - 540) * .9, (y - 930) * .55) / 900), 540, 930);
+  } else {
+    dots(c, g.dot, 22, groundDens, 540, 980);
+  }
+}
+
+// ---------- 도형 ----------
+function rr(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+// 스탬프 등장: 시작 후 d초 동안 1.10→1 (중심 기준), 색판 오프셋도 같이 줄어든다. 시작 전엔 그리지 않음
+function stampBegin(c, t, start, cx, cy, d, amp) {
+  const p = prog(t, start, d || .22), s = 1 + (amp == null ? .10 : amp) * (1 - eo(p));
+  c.save(); c.translate(cx, cy); c.scale(s, s); c.translate(-cx, -cy);
+  return 1 - eo(p);
+}
+// 종이 슬립: 색판 오프셋 블록 + 종이 + 어긋난 검정 키 프레임
+function slip(c, x, y, w, h, plate, paper, off) {
+  off = off || 16;
+  c.fillStyle = plate; rr(c, x + off, y + off + 2, w, h, 10); c.fill();
+  c.fillStyle = paper || PAPER; rr(c, x, y, w, h, 10); c.fill();
+  c.strokeStyle = KEY; c.lineWidth = 8; c.lineJoin = 'round'; rr(c, x + 3, y - 3, w, h, 10); c.stroke();
+}
+// 별 모양(팝 버스트)
+function starPath(c, cx, cy, rx, ry, n, inner, rot) {
+  c.beginPath();
+  for (let i = 0; i < n * 2; i++) { const a = rot + i * Math.PI / n, k = i % 2 ? inner : 1; const x = cx + Math.cos(a) * rx * k, y = cy + Math.sin(a) * ry * k; i ? c.lineTo(x, y) : c.moveTo(x, y); }
+  c.closePath();
+}
+function burst(c, cx, cy, rx, ry, fill, plate, lw, withDots) {
+  const n = 16, inner = .84, rot = -.2;
+  c.save(); c.translate(lw * .9, lw * .9); starPath(c, cx, cy, rx, ry, n, inner, rot); c.fillStyle = plate; c.fill(); c.restore();
+  starPath(c, cx, cy, rx, ry, n, inner, rot); c.fillStyle = fill; c.fill();
+  if (withDots) { c.save(); c.clip(); dots(c, '#B3131B', Math.max(8, lw * 1.9), (x, y) => .10 + .22 * clamp(Math.hypot((x - cx) / rx, (y - cy) / ry)), cx, cy); c.restore(); }
+  c.save(); c.translate(-lw * .25, lw * .25); starPath(c, cx, cy, rx, ry, n, inner, rot); c.strokeStyle = KEY; c.lineWidth = lw; c.lineJoin = 'round'; c.stroke(); c.restore();
+}
+
+// ---------- 글자 찍기 ----------
+// B: LCL fit 결과. kind별 폰트. 색판(sh)이 오프셋만큼 어긋나 있다가 제자리로 들어간다(등록).
+function textRaw(c, B, color, o) {
+  o = o || {};
+  c.save(); c.font = fontStr(B.kind, B.size); c.textBaseline = 'middle'; c.textAlign = 'left'; c.lineJoin = 'round';
+  const off = o.off || 0;
+  B.lines.forEach((ln, i) => {
+    const lw = B.lw[i], lx = o.left != null ? o.left : B.cx - lw / 2, ty = B.y + i * B.lhp + B.lhp / 2;
+    if (o.sh) { c.fillStyle = o.sh; c.strokeStyle = o.sh; c.lineWidth = o.ol ? o.ol : 1; if (o.ol) c.strokeText(ln, lx + off, ty + off); c.fillText(ln, lx + off, ty + off); }
+    if (o.ol) { c.strokeStyle = KEY; c.lineWidth = o.ol; c.strokeText(ln, lx, ty); }
+    c.fillStyle = color; c.fillText(ln, lx, ty);
+  });
+  c.restore();
+}
+// 장면 글자: start 시각에 찍힘. 보고(TEXTS)는 최종 레이아웃 박스(스탬프 확대 제외)
+function put(c, B, start, color, o) {
+  o = o || {}; const t = o.t;
+  if (t < start) return;
+  const lx = o.left != null ? o.left : B.cx - B.w / 2;
+  const cx = lx + B.w / 2, cy = B.y + B.h / 2, k = stampBegin(c, t, start, cx, cy, .2, .12);
+  const base = Math.max(3, B.size * .055);
+  textRaw(c, B, color, { left: o.left, sh: o.sh, off: o.sh ? base + (B.size * .16) * k : 0 });
+  c.restore();
+  if (o.rep !== false) TX.push({ id: B.id, text: B.text, x0: lx, x1: lx + B.w, y0: B.y, y1: B.y + B.h });
+}
+
+// ---------- 레이아웃(폰트 로드 후 1회) ----------
+const YC = 890;
+function layout() {
+  const C = tl.C, L = {}, M = LCL.MIN, SF = LCL.SAFE;
+  STACK.tg = LANG === 'ja' ? 'Fredoka, LCJP, LCKR, sans-serif' : LANG === 'zh' ? 'Fredoka, LCSC, LCKR, sans-serif' : 'Fredoka, LCKR, sans-serif';
+  LX = LCL.make(mc, fontStr);
+  // 훅: 처음 2초 화면 가득(≥110px). 줄바꿈 그대로 52px 제목으로 줄어 위에 남는다. 팝 버스트 안에 앉힌다
+  let hb = LX.fit(C.hook, 'ko', { maxW: 860, maxLines: 3, s0: 150, s1: M.hook, lh: 1.2 });
+  if (hb.lines.length > 3 || hb.w > 861) hb = LX.fit(C.hook, 'ko', { maxW: 860, maxLines: 4, s0: M.hook, s1: 80, lh: 1.2 });
+  hb.id = 'hook'; hb.cx = 540; hb.y = YC - 20 - hb.h / 2;
+  const f = Math.min(1, M.title / hb.size);
+  const rx = Math.min(560, hb.w / 2 + 110), ry = hb.h / 2 + 100;
+  L.hook = { B: hb, f, cy: hb.y + hb.h / 2, titleTop: 300, rx, ry };
+  const tcy = 300 + f * hb.h / 2;                         // 제목 버스트 중심
+  const burstBottom = tcy + f * ry;
+  L.titleCy = tcy;
+  // WRONG / RIGHT: 큰 종이 카드 + 모서리 아이콘. 사용 가능 영역 안에서 세로 가운데
+  const A0 = burstBottom + 80, A1 = 1470, mw = 900, PADT = 86, PADB = 50;
+  const card = (items) => {
+    const bl = LX.stack(items, 0, (A1 - A0) - PADT - PADB, mw);
+    const ch = bl.bottom + PADT + PADB, top = A0 + Math.max(0, (A1 - A0 - ch) / 2);
+    bl.forEach(b => { b.y += top + PADT; });
+    return { items: bl, card: [50, top, 980, ch], icon: [150, top] };
+  };
+  L.wrong = card([
+    { id: 'wrong', text: C.wrong, kind: 'tg', s0: 130, s1: M.body, maxLines: 3, lh: 1.22 },
+    { id: 'wrongPh', text: C.wrongPh, kind: 'ko', s0: 68, s1: 40, maxLines: 2, gap: 44, lh: 1.28 }]);
+  L.right = card([
+    { id: 'right', text: C.right, kind: 'tg', s0: 130, s1: M.body, maxLines: 3, lh: 1.22 },
+    { id: 'rightPh', text: C.rightPh, kind: 'ko', s0: 64, s1: 40, maxLines: 2, gap: 36, lh: 1.28 },
+    { id: 'roman', text: C.roman, kind: 'tg', s0: 56, s1: 36, maxLines: 2, gap: 14, lh: 1.25 },
+    { id: 'rightKo', text: C.rightKo, kind: 'ko', s0: 70, s1: 44, maxLines: 3, gap: 46, lh: 1.3 }]);
+  if (C.explain) {
+    const b = LX.fit(C.explain, 'ko', { maxW: 780, maxLines: 5, s0: 104, s1: 60, lh: 1.36 });
+    b.id = 'explain'; b.cx = 540; b.y = YC - b.h / 2;
+    L.explain = { B: b, box: [540 - b.w / 2 - 56, b.y - 60, b.w + 112, b.h + 120] };
+  }
+  L.dialogue = LX.dialogue(C.dialogue, { y0: SF.top + 20, y1: SF.bottom, gap: 70 });
+  // VOCAB: 카드 2장
+  { const cards = C.vocab.map((v, i) => {
+      const w = LX.fit(v.word, 'tg', { maxW: 640, maxLines: 1, s0: 140, s1: 72, lh: 1.15 }); w.id = 'v' + i + 'w';
+      const ty = v.type ? LX.fit(v.type, 'ko', { maxW: 230, maxLines: 1, s0: 44, s1: 32, lh: 1.2 }) : null; if (ty) ty.id = 'v' + i + 't';
+      const m = v.meaning ? LX.fit(v.meaning, 'ko', { maxW: 840, maxLines: 2, s0: 66, s1: 44, lh: 1.28 }) : null; if (m) m.id = 'v' + i + 'm';
+      const p = v.phonetic ? LX.fit(v.phonetic, 'ko', { maxW: 840, maxLines: 1, s0: 54, s1: 38, lh: 1.25 }) : null; if (p) p.id = 'v' + i + 'p';
+      const h = w.h + 16 + (m ? m.h : 0) + (p ? p.h + 6 : 0);
+      return { w, ty, m, p, h };
+    });
+    const GAPC = 100, tot = cards.reduce((s, c) => s + c.h, 0) + GAPC * (cards.length - 1);
+    let y = YC - tot / 2;
+    cards.forEach(k => { k.top = y; k.w.y = y; let yy = y + k.w.h + 16; if (k.ty) k.ty.y = y + (k.w.h - k.ty.h) / 2 + 8; if (k.m) { k.m.y = yy; yy += k.m.h; } if (k.p) k.p.y = yy + 6; y += k.h + GAPC; });
+    L.vocab = cards; }
+  // CTA
+  { const b = LX.fit(C.cta || C.handle, 'ko', { maxW: 820, maxLines: 4, s0: 108, s1: 60, lh: 1.28 }); b.id = 'cta'; b.cx = 540;
+    const h = LX.fit(C.handle, 'ko', { maxW: 800, maxLines: 1, s0: 92, s1: 48, lh: 1.2 }); h.id = 'handle'; h.cx = 540;
+    const tot = 170 + 50 + (b.h + 80) + 60 + (h.h + 48); let y = YC - tot / 2;
+    L.cta = { iconY: y, b, h }; b.y = y + 170 + 50 + 40; h.y = b.y + b.h + 40 + 60 + 24; }
+  LAY = L;
+}
+
+// ---------- 훅 / 제목 버스트 ----------
+function titleOn(t) { return t < tl.by.hook.titleUntil; }
+function drawTitle(c, t) {
+  const L = LAY.hook, B = L.B, hk = tl.by.hook;
+  const [m0, m1] = hk.cue.move, mv = ease((t - m0) / (m1 - m0));
+  const pop = t < .6 ? 1 + .18 * Math.exp(-t * 9) * Math.cos(t * 24) : 1;
+  const sc = pop * lerp(1, L.f, mv), tx = 540, ty = lerp(L.cy, LAY.titleCy, mv);
+  const shake = t > .16 && t < .7 ? Math.exp(-(t - .16) * 8) : 0;
+  const lw = Math.max(5, 15 * sc / pop);
+  c.save();
+  c.translate(tx + Math.sin(t * 95) * 9 * shake, ty + Math.cos(t * 83) * 6 * shake); c.scale(sc, sc); c.translate(-540, -L.cy);
+  burst(c, 540, L.cy, L.rx, L.ry, RED, BLU, 15, true);
+  const ol = Math.max(8, B.size * .15);
+  textRaw(c, B, PAPER, { sh: YEL, off: Math.max(5, B.size * .07), ol });
+  c.restore();
+  const fs = sc / pop;       // 보고 박스는 팝 흔들림 제외, 제목 축소만 반영
+  TX.push({ id: 'hook', text: B.text, x0: 540 - (B.w / 2) * fs, x1: 540 + (B.w / 2) * fs, y0: ty - (B.h / 2) * fs, y1: ty + (B.h / 2) * fs });
+}
+
+// ---------- 장면 ----------
+function icon(c, t, start, x, y, kind) {
+  if (t < start) return;
+  const k = stampBegin(c, t, start, x, y, .25, .35);
+  c.fillStyle = KEY; c.beginPath(); c.arc(x + 9, y + 9, 66, 0, 6.2832); c.fill();
+  c.fillStyle = kind === 'x' ? RED : YEL; c.beginPath(); c.arc(x, y, 64, 0, 6.2832); c.fill();
+  c.strokeStyle = KEY; c.lineWidth = 8; c.stroke();
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  const path = () => { c.beginPath(); if (kind === 'x') { c.moveTo(x - 28, y - 28); c.lineTo(x + 28, y + 28); c.moveTo(x + 28, y - 28); c.lineTo(x - 28, y + 28); } else { c.moveTo(x - 32, y + 2); c.lineTo(x - 8, y + 28); c.lineTo(x + 34, y - 28); } };
+  c.strokeStyle = KEY; c.lineWidth = 34; path(); c.stroke();
+  c.strokeStyle = PAPER; c.lineWidth = 18; path(); c.stroke();
+  c.restore();
+}
+function cardBox(c, t, start, box, plate) {
+  const [x, y, w, h] = box, k = stampBegin(c, t, start, x + w / 2, y + h / 2, .22, .07);
+  slip(c, x, y, w, h, plate, PAPER, 16 + 14 * k);
+  c.restore();
+}
+function drawWrong(c, t, sc) {
+  const cu = sc.cue, L = LAY.wrong, rep = t < sc.t1, tk = { wrong: cu.text, wrongPh: cu.ph };
+  cardBox(c, t, sc.t0, L.card, YEL);
+  icon(c, t, cu.icon, L.icon[0], L.icon[1], 'x');
+  L.items.forEach(B => put(c, B, tk[B.id], B.id === 'wrong' ? KEY : BLU, { t, rep, sh: B.id === 'wrong' ? RED : null }));
+  const B = L.items[0];
+  if (B && t > cu.strike) {     // 음성이 끝나면 빨간 잉크 띠로 그어 지운다(검정 키 선 위에 빨강)
+    c.save(); c.lineCap = 'round';
+    B.lines.forEach((ln, i) => {
+      const lx = B.cx - B.lw[i] / 2, my = B.y + i * B.lhp + B.lhp * .54, p = eo(prog(t, cu.strike + i * .12, .22));
+      if (p <= 0) return;
+      const x1 = lerp(lx - 20, lx + B.lw[i] + 20, p);
+      c.strokeStyle = KEY; c.lineWidth = 40; c.beginPath(); c.moveTo(lx - 20, my + 6); c.lineTo(x1, my + 6 - 14 * p); c.stroke();
+      c.strokeStyle = RED; c.lineWidth = 26; c.beginPath(); c.moveTo(lx - 20, my + 6); c.lineTo(x1, my + 6 - 14 * p); c.stroke();
+    });
+    c.restore();
+  }
+}
+function drawRight(c, t, sc) {
+  const cu = sc.cue, L = LAY.right, rep = t < sc.t1, tk = { right: cu.text, rightPh: cu.ph, roman: cu.roman, rightKo: cu.ko };
+  cardBox(c, t, sc.t0, L.card, BLU);
+  icon(c, t, cu.icon, L.icon[0], L.icon[1], 'v');
+  const R = L.items[0];
+  if (R) {   // 정답 줄 뒤에 노란 마커 판(글자보다 먼저 깔림)
+    const p = eo(prog(t, cu.text, .35));
+    c.fillStyle = YEL;
+    R.lines.forEach((ln, i) => { const lx = R.cx - R.lw[i] / 2, top = R.y + i * R.lhp; if (p > 0) c.fillRect(lx - 14, top + R.lhp * .46, (R.lw[i] + 28) * p, R.lhp * .46); });
+  }
+  L.items.forEach(B => put(c, B, tk[B.id], B.id === 'roman' ? GREY : (B.id === 'rightPh' ? BLU : KEY), { t, rep, sh: B.id === 'right' ? BLU : (B.id === 'rightKo' ? RED : null) }));
+}
+function drawExplain(c, t, sc) {
+  const cu = sc.cue, L = LAY.explain, rep = t < sc.t1, [bx, by, bw, bh] = L.box;
+  cardBox(c, t, cu.box, L.box, BLU);
+  // 팝 버스트 + 느낌표(도형으로 그림)
+  if (t >= cu.box + .05) {
+    const k = stampBegin(c, t, cu.box + .05, bx + bw - 30, by - 20, .25, .35);
+    burst(c, bx + bw - 30, by - 20, 96, 96, YEL, RED, 8, false);
+    c.fillStyle = KEY; rr(c, bx + bw - 44, by - 62, 28, 56, 8); c.fill(); c.beginPath(); c.arc(bx + bw - 30, by + 18, 15, 0, 6.2832); c.fill();
+    c.restore();
+  }
+  put(c, L.B, cu.text, KEY, { t, rep, sh: RED });
+}
+function drawDialogue(c, t, sc) {
+  const rep = t < sc.t1, hl = tl.C.hl;
+  LAY.dialogue.forEach((r, i) => {
+    const cu = sc.cue.turns[i]; if (t < cu.bubble) return;
+    const plate = i % 2 === 0 ? RED : BLU, hot = i === hl;
+    const k = stampBegin(c, t, cu.bubble, r.x + r.w / 2, r.y + r.h / 2, .25, .10);
+    slip(c, r.x, r.y, r.w, r.h, plate, hot ? YEL2 : PAPER, 16 + 14 * k);
+    // 말하는 쪽 표시: 슬립 바깥 모서리에 색판 사각 태그(말풍선 꼬리 대신)
+    const tx = r.side === 'L' ? r.x - 6 : r.x + r.w - 46;
+    c.fillStyle = plate; c.fillRect(tx, r.y + r.h - 8, 52, 52); c.strokeStyle = KEY; c.lineWidth = 6; c.strokeRect(tx + 2, r.y + r.h - 10, 52, 52);
+    c.restore();
+    [[r.a, cu.line, KEY, plate], [r.b, cu.ph, BLU, null], [r.c, cu.ko, KEY, null]].forEach(([B, st, col, sh]) => B && put(c, B, st, col, { t, rep, sh }));
+  });
+}
+function drawVocab(c, t, sc) {
+  const rep = t < sc.t1;
+  LAY.vocab.forEach((k, i) => {
+    const cu = sc.cue.cards[i]; if (t < cu.word) return;
+    const box = [60, k.top - 28, 960, k.h + 56];
+    cardBox(c, t, cu.word, box, i % 2 === 0 ? RED : BLU);
+    put(c, k.w, cu.word, KEY, { t, rep, left: 100, sh: i % 2 === 0 ? RED : BLU });
+    if (k.ty) put(c, k.ty, cu.type, GREY, { t, rep, left: 990 - k.ty.lw[0] });
+    if (k.m) put(c, k.m, cu.meaning, KEY, { t, rep, left: 100 });
+    if (k.p) put(c, k.p, cu.ph, BLU, { t, rep, left: 100 });
+  });
+}
+function drawCta(c, t, sc) {
+  const cu = sc.cue, L = LAY.cta, rep = t < sc.t1, bx = 540, by = L.iconY;
+  if (t >= cu.icon) {   // 저장 리본(북마크) 아이콘
+    const k = stampBegin(c, t, cu.icon, bx, by + 85, .3, .3);
+    const path = (dx, dy) => { c.beginPath(); c.moveTo(bx - 62 + dx, by + dy); c.lineTo(bx + 62 + dx, by + dy); c.lineTo(bx + 62 + dx, by + 170 + dy); c.lineTo(bx + dx, by + 122 + dy); c.lineTo(bx - 62 + dx, by + 170 + dy); c.closePath(); };
+    c.fillStyle = KEY; path(12, 10); c.fill(); c.fillStyle = YEL; path(0, 0); c.fill(); c.strokeStyle = KEY; c.lineWidth = 9; c.lineJoin = 'round'; path(-3, -3); c.stroke();
+    c.restore();
+  }
+  const bb = [60, L.b.y - 40, 960, L.b.h + 80];
+  cardBox(c, t, cu.text - .05, bb, YEL);
+  put(c, L.b, cu.text, KEY, { t, rep, sh: RED });
+  const hx = 540 - L.h.w / 2 - 50, hy = L.h.y - 24, hw = L.h.w + 100, hh = L.h.h + 48;
+  if (t >= cu.handle - .05) {
+    const k = stampBegin(c, t, cu.handle - .05, 540, hy + hh / 2, .22, .12);
+    c.fillStyle = RED; rr(c, hx + 14, hy + 16, hw, hh, 10); c.fill(); c.fillStyle = KEY; rr(c, hx, hy, hw, hh, 10); c.fill(); c.restore();
+  }
+  put(c, L.h, cu.handle, YEL, { t, rep });
+}
+const DRAW = { hook: () => {}, wrong: drawWrong, right: drawRight, explain: drawExplain, dialogue: drawDialogue, vocab: drawVocab, cta: drawCta };
+
+function drawScene(c, t, sc, idx) {
+  drawGround(c, t, idx, sc.id === 'hook');
+  DRAW[sc.id](c, t, sc);
+}
+
+// ---------- 스퀴지 전환 ----------
+// 훅→WRONG은 timeline상 와이프가 없지만, 눈으로는 0.3초 스퀴지로 색판이 바뀐다(시간·음성에 영향 없음)
+const wipeDurOf = prev => prev.id === 'hook' ? .3 : (prev.wipe || 0);
+const SLANT = .3;
+function lineX(front, y) { return front + (y - 960) * SLANT; }
+function polyLeft(c, front) { c.beginPath(); c.moveTo(-3000, -60); c.lineTo(lineX(front, -60), -60); c.lineTo(lineX(front, H + 60), H + 60); c.lineTo(-3000, H + 60); c.closePath(); }
+function polyRight(c, front) { c.beginPath(); c.moveTo(lineX(front, -60), -60); c.lineTo(W + 3000, -60); c.lineTo(W + 3000, H + 60); c.lineTo(lineX(front, H + 60), H + 60); c.closePath(); }
+function band(c, front, nextIdx) {
+  const slab = (x0, w, col) => { c.fillStyle = col; c.beginPath(); c.moveTo(lineX(x0, -60), -60); c.lineTo(lineX(x0 + w, -60), -60); c.lineTo(lineX(x0 + w, H + 60), H + 60); c.lineTo(lineX(x0, H + 60), H + 60); c.closePath(); c.fill(); };
+  slab(front - 46, 100, GROUND[(nextIdx + 1) % 3].bg);   // 다음 다음 색판이 살짝 앞서 지나간다
+  slab(front - 30, 40, KEY);                              // 검정 키 띠
+}
+
+function render(t) {
+  TX = [];
+  if (!tl) return;
+  const sc = tl.scenes, c = ctx;
+  c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+  let i = 0; for (let k = 0; k < sc.length; k++) if (sc[k].t0 <= t) i = k;
+  const cur = sc[i], prev = i > 0 ? sc[i - 1] : null, hk = tl.by.hook;
+  const wd = prev ? wipeDurOf(prev) : 0;
+  const wiping = !!(prev && wd > 0 && t >= prev.t1 && t < prev.t1 + wd);
+  const tOn = titleOn(t), titleWipe = wiping && prev.id === 'right';
+  if (wiping) {
+    const p = ease((t - prev.t1) / wd), front = lerp(-420, W + 520, p);
+    c.save(); polyRight(c, front); c.clip();
+    drawScene(c, t, prev, i - 1); if (titleWipe && tOn) drawTitle(c, t);
+    c.restore();
+    c.save(); polyLeft(c, front); c.clip();
+    drawScene(c, t, cur, i);
+    c.restore();
+    if (tOn && !titleWipe) drawTitle(c, t);
+    band(c, front, i);
+  } else {
+    drawScene(c, t, cur, i);
+    if (tOn) drawTitle(c, t);
+  }
+}
+
+window.DUR = 1; window.EV = [];
+window.render = render;
+window.TEXTS = () => LC.texts(TX);
+(async function init() {
+  try {
+    const { input, dur, opts } = await LC.load();
+    LANG = input.lang;
+    tl = LC.buildAuto(input, dur, opts);
+    window.DUR = tl.DUR; window.EV = tl.EV;
+    const sample = [tl.C.hook, tl.C.wrong, tl.C.right, tl.C.explain, tl.C.cta, tl.C.rightKo, tl.C.rightPh, tl.C.roman, ...tl.C.vocab.flatMap(v => [v.word, v.meaning, v.phonetic, v.type]),
+      ...tl.C.dialogue.flatMap(d => [d.line, d.ph, d.ko]), '@langcard.studio 0123456789'].join(' ');
+    await Promise.all(['LCKR', 'LCJP', 'LCSC', 'Fredoka'].map(f => document.fonts.load(`700 40px ${f}`, sample)));
+    await document.fonts.ready;
+    layout();
+    window.READY = true;
+  } catch (e) { console.error('init failed', e); throw e; }
+})();
+</script></body></html>
