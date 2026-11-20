@@ -1,0 +1,435 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>LangCard - chalkboard</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+@font-face{font-family:"LCKR";src:url("fonts/NotoSansKR-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCJP";src:url("fonts/NotoSansJP-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCSC";src:url("fonts/NotoSansSC-Bold.ttf");font-weight:700;font-display:block}
+html,body{margin:0;padding:0;background:#000;overflow:hidden}
+canvas{display:block}
+</style></head>
+<body><canvas id="c"></canvas>
+<script src="common/timeline.js"></script>
+<script>
+// ===== LangCard / Chalkboard 스타일 — 1080x1920, 결정적 render(t) =====
+// 분필 글씨는 폰트 글리프를 슬라이스 클립으로 "써 내려가고", 전체 레이어에 분필 입자(destination-out)를 입힌다.
+// (STYLE.md의 획순 엔진은 쓰지 않음 — 한글·일본어·중국어 전 글자의 획 데이터가 없으므로. README의 한계 참조)
+const W = 1080, H = 1920;
+const SAFE = { x0: 80, x1: 1000, y0: 280, y1: 1230 };   // 글자는 이 안에만 (좌우 여백 80)
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const ctx = cv.getContext('2d');
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const cc = mk(W, H), cx2 = cc.getContext('2d');           // 분필 레이어
+
+// 분필 색 3종(+옅은 색): 흰 분필=구조, 노란 분필=정답/강조, 붉은 분필=오답
+const WHITE = '#f3f1e7', PALE = '#bcc9bd', YELLOW = '#ffe27a', RED = '#ff8a78';
+
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const eo = x => { x = clamp(x); return 1 - Math.pow(1 - x, 3); };
+const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const hstr = s => { let h = 2166136261; for (const c of String(s)) h = Math.imul(h ^ c.codePointAt(0), 16777619); return h >>> 0; };
+
+let tl = null, LAY = {}, TX = [], LANG = 'en';
+let bg = null, grain = null;
+
+// ---------- 글꼴 ----------
+const STACK = { ko: 'Fredoka, LCKR, LCJP, LCSC, sans-serif', tg: null };
+const fontStr = (kind, size) => `700 ${size}px ${STACK[kind]}`;
+
+// ---------- 줄바꿈: 라틴·한글은 단어 단위, 일본어·중국어는 글자 단위. 문장부호는 앞 토큰에 붙인다 ----------
+const CJK_RE = /[぀-ヿ㐀-鿿＀-￯]/u;
+const PUNCT_RE = /^[。、，．！？）」』】,.!?:;)”’…~]+$/u;
+function tokens(s) {
+  const out = [], re = /[぀-ヿ㐀-鿿＀-￯]|[^\s぀-ヿ㐀-鿿＀-￯]+|\s+/gu;
+  let m;
+  while ((m = re.exec(s))) {
+    const tk = m[0];
+    if (/^\s+$/.test(tk)) { out.push({ sp: true }); continue; }
+    if (PUNCT_RE.test(tk) && out.length && !out[out.length - 1].sp) { out[out.length - 1].t += tk; continue; }
+    out.push({ t: tk, cjk: CJK_RE.test(tk) && tk.length === 1 });
+  }
+  return out;
+}
+function wrap(text, maxW) {   // 현재 ctx.font 기준
+  const tks = tokens(text), lines = []; let line = '', pendSp = false;
+  const wd = s => cx2.measureText(s).width;
+  for (const tk of tks) {
+    if (tk.sp) { pendSp = line !== ''; continue; }
+    const sep = pendSp && !tk.cjk ? ' ' : (pendSp ? ' ' : '');
+    const cand = line + sep + tk.t;
+    if (line === '' || wd(cand) <= maxW) { line = cand; }
+    else { lines.push(line); line = tk.t; }
+    pendSp = false;
+    // 한 토큰이 maxW보다 길면 글자 단위로 쪼갠다
+    while (wd(line) > maxW && [...line].length > 1) {
+      let cut = [...line]; let head = '';
+      for (const ch of cut) { if (wd(head + ch) > maxW && head) break; head += ch; }
+      lines.push(head); line = line.slice(head.length);
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+// 크기 자동 축소: s0에서 시작해 줄 수·폭이 맞을 때까지 2px씩 줄인다(측정 기반)
+function fit(text, kind, o) {
+  const lh = o.lh || 1.28; let size = Math.round(o.s0);
+  for (;;) {
+    cx2.font = fontStr(kind, size);
+    const lines = wrap(text, o.maxW);
+    const lw = lines.map(l => cx2.measureText(l).width), w = Math.max(...lw, 1);
+    if ((lines.length <= o.maxLines && w <= o.maxW + .5) || size <= Math.round(o.s1)) {
+      return { text, kind, size, lines, lw, w, lhp: size * lh, h: lines.length * size * lh };
+    }
+    size -= 2;
+  }
+}
+// 세로 쌓기: 전체가 y1을 넘으면 배율 k를 줄여 다시 맞춘다
+function stack(items, y0, y1, maxW) {
+  for (let k = 1; k > .3; k -= .06) {
+    const bl = items.filter(it => it.text).map(it => Object.assign({ it }, fit(it.text, it.kind, { maxW: it.maxW || maxW, maxLines: it.maxLines, s0: it.s0 * k, s1: it.s1 * k, lh: it.lh })));
+    let y = y0; bl.forEach((b, i) => { y += (i ? bl[i].it.gap || 30 : 0) * k; b.y = y; y += b.h; });
+    if (y <= y1 || k <= .35) return bl.map(b => Object.assign(b, { id: b.it.id, color: b.it.color, cx: 540 }));
+  }
+}
+
+// ---------- 분필 입자·획 ----------
+function makeGrain() {
+  const t = mk(256, 256), g = t.getContext('2d'), im = g.createImageData(256, 256), r = rng(777);
+  for (let i = 0; i < 256 * 256; i++) { const v = r(); const a = v < .30 ? 255 * (.35 + .65 * r()) : (v < .36 ? 120 : 0); im.data[i * 4 + 3] = a; }
+  g.putImageData(im, 0, 0);
+  // 압력 얼룩: 큰 덩어리 한 겹
+  const t2 = mk(512, 512), g2 = t2.getContext('2d'), r2 = rng(31);
+  for (let i = 0; i < 260; i++) { g2.fillStyle = `rgba(0,0,0,${.05 + .08 * r2()})`; g2.beginPath(); g2.arc(r2() * 512, r2() * 512, 10 + r2() * 38, 0, 7); g2.fill(); }
+  return { fine: cx2.createPattern(t, 'repeat'), blot: cx2.createPattern(t2, 'repeat') };
+}
+function makeBoard() {
+  const c = mk(W, H), g = c.getContext('2d');
+  g.fillStyle = '#5b3d22'; g.fillRect(0, 0, W, H);
+  const bx = 26, by = 26, bw = W - 52, bh = 1760 - by;      // 칠판 면
+  const gr = g.createRadialGradient(540, 760, 120, 540, 760, 1100); gr.addColorStop(0, '#264a39'); gr.addColorStop(1, '#14291f');
+  g.fillStyle = gr; g.fillRect(bx, by, bw, bh);
+  // 느린 얼룩(깨끗한 판: 낡은 흔적 없음)
+  const r = rng(5);
+  for (let i = 0; i < 70; i++) { g.fillStyle = `rgba(${r() < .5 ? '255,255,255' : '0,0,0'},${.004 + .007 * r()})`; g.beginPath(); g.ellipse(bx + r() * bw, by + r() * bh, 120 + r() * 300, 90 + r() * 220, r() * 3, 0, 7); g.fill(); }
+  const im = g.getImageData(bx, by, bw, bh), d = im.data, r2 = rng(9);
+  for (let i = 0; i < d.length; i += 4) { const n = (r2() - .5) * 9; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+  g.putImageData(im, bx, by);
+  // 나무 틀: 안쪽 그림자 + 하이라이트
+  g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 10; g.strokeRect(bx + 5, by + 5, bw - 10, bh - 10);
+  const wg = g.createLinearGradient(0, 0, W, 0); wg.addColorStop(0, '#7a5230'); wg.addColorStop(.5, '#8a6038'); wg.addColorStop(1, '#6d4828');
+  g.fillStyle = wg; g.fillRect(0, 0, W, by); g.fillRect(0, 0, bx, H); g.fillRect(W - bx, 0, bx, H);
+  g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(0, 0, W, 4); g.fillRect(0, 0, 4, H);
+  // 분필 받침대
+  g.fillStyle = '#7d5632'; g.fillRect(0, 1760, W, 70); g.fillStyle = '#9a7143'; g.fillRect(0, 1760, W, 12); g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(0, 1830, W, 6);
+  g.fillStyle = '#4e331b'; g.fillRect(0, 1836, W, H - 1836);
+  const stick = (x, y, w, col) => { g.fillStyle = col; g.fillRect(x, y, w, 16); g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(x, y + 11, w, 5); };
+  stick(120, 1744, 110, WHITE); stick(250, 1748, 80, YELLOW); stick(340, 1746, 62, RED);
+  g.fillStyle = '#6b5a45'; g.fillRect(790, 1730, 170, 30); g.fillStyle = '#1c1c1c'; g.fillRect(790, 1730, 170, 16);   // 칠판지우개
+  return c;
+}
+
+const jit = (seed, i) => (rng(seed + i * 977)() - .5);
+function resample(pts, step, amp, seed) {     // 손맛: 일정 간격으로 쪼개 살짝 흔든다
+  const out = []; let k = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.round(L / step));
+    for (let j = 0; j < n; j++, k++) { const u = j / n; out.push([lerp(x0, x1, u) + jit(seed, k * 2) * amp, lerp(y0, y1, u) + jit(seed, k * 2 + 1) * amp]); }
+  }
+  out.push(pts[pts.length - 1]); return out;
+}
+function poly(c, pts, p, width, color, seed) {
+  if (p <= 0) return;
+  const P = resample(pts, 14, 1.6, seed || 1); let tot = 0; const seg = [];
+  for (let i = 0; i < P.length - 1; i++) { const l = Math.hypot(P[i + 1][0] - P[i][0], P[i + 1][1] - P[i][1]); seg.push(l); tot += l; }
+  let want = tot * clamp(p), ac = 0;
+  c.save(); c.strokeStyle = color; c.lineWidth = width; c.lineCap = 'round'; c.lineJoin = 'round'; c.beginPath(); c.moveTo(P[0][0], P[0][1]);
+  for (let i = 0; i < seg.length; i++) {
+    if (ac + seg[i] <= want) { c.lineTo(P[i + 1][0], P[i + 1][1]); ac += seg[i]; }
+    else { const u = (want - ac) / seg[i]; c.lineTo(lerp(P[i][0], P[i + 1][0], u), lerp(P[i][1], P[i + 1][1], u)); break; }
+  }
+  c.stroke(); c.restore();
+}
+function rrPts(x, y, w, h, r) {
+  const a = [], arc = (cx, cy, a0) => { for (let i = 0; i <= 4; i++) { const t = a0 + i * Math.PI / 8; a.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); } };
+  a.push([x + r, y]); a.push([x + w - r, y]); arc(x + w - r, y + r, -Math.PI / 2);
+  a.push([x + w, y + h - r]); arc(x + w - r, y + h - r, 0);
+  a.push([x + r, y + h]); arc(x + r, y + h - r, Math.PI / 2);
+  a.push([x, y + r]); arc(x + r, y + r, Math.PI); a.push([x + r + 2, y]);
+  return a;
+}
+
+// ---------- 글씨 쓰기 ----------
+// B: fit() 결과 + {cx,y} (가운데 정렬) 또는 {x}(왼쪽 정렬). p: 쓰기 진행 0~1. 읽을 글씨는 보고(rep)되어 readcheck가 본다.
+function put(c, B, p, color, o) {
+  o = o || {};
+  if (p <= 0) return;
+  const total = B.lw.reduce((a, b) => a + b, 0), reveal = clamp(p) * total;
+  const m = c.getTransform(), sc = m.a;
+  let cum = 0, x0box = 1e9, x1box = -1e9;
+  c.save(); c.font = fontStr(B.kind, B.size); c.textBaseline = 'middle'; c.fillStyle = color; c.strokeStyle = color; c.lineWidth = Math.max(1.2, B.size * .018); c.lineJoin = 'round';
+  B.lines.forEach((ln, i) => {
+    const lw = B.lw[i], lx = o.left != null ? o.left : B.cx - lw / 2, top = B.y + i * B.lhp;
+    x0box = Math.min(x0box, lx); x1box = Math.max(x1box, lx + lw);
+    const rw = clamp((reveal - cum) / lw) * lw; cum += lw;
+    if (rw <= 0) return;
+    const slant = B.size * .3, full = rw >= lw - .01;
+    c.save(); c.beginPath();
+    if (full) c.rect(lx - 6, top - 4, lw + 12, B.lhp + 8);
+    else { c.moveTo(lx - 6, top - 4); c.lineTo(lx + rw + slant, top - 4); c.lineTo(lx + rw - slant, top + B.lhp + 4); c.lineTo(lx - 6, top + B.lhp + 4); c.closePath(); }
+    c.clip();
+    const ty = top + B.lhp / 2;
+    c.fillText(ln, lx, ty); c.strokeText(ln, lx, ty);
+    c.restore();
+    if (!full) {   // 쓰는 끝에서 튀는 가루 몇 알
+      const R = rng(hstr(B.id || B.text) + Math.floor((o.t || 0) * 24) * 31 + i);
+      c.fillStyle = color;
+      for (let k = 0; k < 5; k++) { c.globalAlpha = .5 + .4 * R(); c.fillRect(lx + rw + (R() - .3) * 26, top + B.lhp * (.2 + .6 * R()), 1 + R() * 2.2, 1 + R() * 2.2); }
+      c.globalAlpha = 1;
+    }
+  });
+  c.restore();
+  if (o.rep !== false) {
+    const y0 = B.y, y1 = B.y + B.h;
+    TX.push({ id: B.id, text: B.text, x0: m.a * x0box + m.e, x1: m.a * x1box + m.e, y0: m.d * y0 + m.f, y1: m.d * y1 + m.f });
+  }
+}
+const prog = (t, a, d) => clamp((t - a) / d);
+
+// ---------- 레이아웃(폰트 로드 후 1회) ----------
+function layout() {
+  const C = tl.C, L = {};
+  STACK.tg = LANG === 'ja' ? 'Fredoka, LCJP, LCKR, sans-serif' : LANG === 'zh' ? 'Fredoka, LCSC, LCKR, sans-serif' : 'Fredoka, LCKR, sans-serif';
+  // 훅: 가운데 크게, 이후 같은 줄바꿈 그대로 줄어 제목이 된다
+  const hb = fit(C.hook, 'ko', { maxW: 880, maxLines: 3, s0: 124, s1: 60, lh: 1.25 });
+  hb.id = 'hook'; hb.cx = 540; hb.y = 745 - hb.h / 2;
+  const f = Math.min(.62, 920 / hb.w, 170 / hb.h);
+  L.hook = { B: hb, f, cy: hb.y + hb.h / 2, titleTop: 292 };
+  // WRONG / RIGHT: 같은 자리에 쓴다(쓰고 → 지우고 → 같은 자리에 다시)
+  const mw = 880, y0 = 690, y1 = 1230;
+  L.wrong = { cy: 566, items: stack([
+    { id: 'wrong', text: C.wrong, kind: 'tg', s0: 88, s1: 40, maxLines: 3, color: WHITE, lh: 1.25 },
+    { id: 'wrongPh', text: C.wrongPh, kind: 'ko', s0: 50, s1: 30, maxLines: 2, color: PALE, gap: 36, lh: 1.3 }], y0, y1, mw) };
+  L.right = { cy: 566, items: stack([
+    { id: 'right', text: C.right, kind: 'tg', s0: 88, s1: 40, maxLines: 3, color: YELLOW, lh: 1.25 },
+    { id: 'rightPh', text: C.rightPh, kind: 'ko', s0: 50, s1: 30, maxLines: 2, color: PALE, gap: 34, lh: 1.3 },
+    { id: 'roman', text: C.roman, kind: 'tg', s0: 44, s1: 28, maxLines: 2, color: PALE, gap: 18, lh: 1.25 },
+    { id: 'rightKo', text: C.rightKo, kind: 'ko', s0: 56, s1: 30, maxLines: 3, color: WHITE, gap: 40, lh: 1.32 }], y0, y1, mw) };
+  // EXPLAIN: 가운데 정렬 박스
+  { const b = fit(C.explain || ' ', 'ko', { maxW: 800, maxLines: 9, s0: 66, s1: 34, lh: 1.42 });
+    b.id = 'explain'; b.cx = 540; b.y = 755 - b.h / 2; b.color = WHITE;
+    L.explain = { B: b, box: [540 - b.w / 2 - 50, b.y - 50, b.w + 100, b.h + 100] }; }
+  // DIALOGUE: 말풍선 높이 합이 영역을 넘으면 글자 배율을 낮춰 다시
+  { const Y0 = 300, Y1 = 1225, n = C.dialogue.length, PADX = 30, PADY = 22, GAPB = 34;
+    let k = 1, res;
+    for (; k > .35; k -= .05) {
+      const innerW = 700 * 1;
+      res = C.dialogue.map((t, i) => {
+        const a = fit(t.line, 'tg', { maxW: innerW, maxLines: 2, s0: 52 * k, s1: 26 * k, lh: 1.22 });
+        const b = t.ph ? fit(t.ph, 'ko', { maxW: innerW, maxLines: 2, s0: 36 * k, s1: 20 * k, lh: 1.25 }) : null;
+        const c = t.ko ? fit(t.ko, 'ko', { maxW: innerW, maxLines: 2, s0: 38 * k, s1: 20 * k, lh: 1.25 }) : null;
+        const parts = [a, b, c].filter(Boolean);
+        const w = Math.max(...parts.map(p => p.w)) + PADX * 2, h = parts.reduce((s, p) => s + p.h, 0) + (parts.length - 1) * 8 * k + PADY * 2;
+        return { a, b, c, w: Math.max(w, 360 * k), h, side: i % 2 === 0 ? 'L' : 'R' };
+      });
+      const tot = res.reduce((s, r) => s + r.h, 0) + (n - 1) * GAPB * k + 30;
+      if (tot <= Y1 - Y0) break;
+    }
+    let y = Y0 + 4;
+    res.forEach((r, i) => {
+      r.x = r.side === 'L' ? SAFE.x0 : SAFE.x1 - r.w; r.y = y; y += r.h + GAPB * k;
+      let yy = r.y + PADY; const ccx = r.x + r.w / 2;
+      [['a', 'd' + i + 'l', WHITE], ['b', 'd' + i + 'p', PALE], ['c', 'd' + i + 'k', WHITE]].forEach(([key, id, col]) => {
+        const p = r[key]; if (!p) return; p.id = id; p.cx = ccx; p.y = yy; p.color = (key === 'a' && i === C.hl) ? YELLOW : col; yy += p.h + 8 * k;
+      });
+    });
+    L.dialogue = res; }
+  // VOCAB: 카드 3장 세로
+  { const cards = C.vocab.map((v, i) => {
+      const top = 330 + i * 300;
+      const w = fit(v.word, 'tg', { maxW: 600, maxLines: 1, s0: 92, s1: 40, lh: 1.2 }); w.id = 'v' + i + 'w'; w.y = top; w.color = YELLOW;
+      const ty = v.type ? fit(v.type, 'ko', { maxW: 220, maxLines: 1, s0: 36, s1: 24, lh: 1.2 }) : null; if (ty) { ty.id = 'v' + i + 't'; ty.color = PALE; }
+      const m = v.meaning ? fit(v.meaning, 'ko', { maxW: 880, maxLines: 2, s0: 50, s1: 28, lh: 1.3 }) : null; if (m) { m.id = 'v' + i + 'm'; m.y = top + 118; m.color = WHITE; }
+      const p = v.phonetic ? fit(v.phonetic, 'ko', { maxW: 880, maxLines: 1, s0: 38, s1: 24, lh: 1.25 }) : null; if (p) { p.id = 'v' + i + 'p'; p.y = top + 118 + (m ? m.h : 0) + 6; p.color = PALE; }
+      if (ty) ty.y = top + (w.h - ty.h) / 2 + 6;
+      return { top, w, ty, m, p };
+    }); L.vocab = cards; }
+  // CTA
+  { const b = fit(C.cta || C.handle, 'ko', { maxW: 880, maxLines: 4, s0: 80, s1: 40, lh: 1.3 }); b.id = 'cta'; b.cx = 540; b.y = 640; b.color = YELLOW;
+    const h = fit(C.handle, 'ko', { maxW: 880, maxLines: 1, s0: 74, s1: 40, lh: 1.2 }); h.id = 'handle'; h.cx = 540; h.y = Math.max(b.y + b.h + 90, 960); h.color = WHITE;
+    L.cta = { b, h }; }
+  LAY = L;
+}
+
+// ---------- 장면 그리기(분필 레이어 cx2에) ----------
+function drawHook(c, t) {
+  const L = LAY.hook, B = L.B, hk = tl.by.hook;
+  if (t >= hk.titleUntil) return;
+  const [m0, m1] = hk.cue.move, mv = ease((t - m0) / (m1 - m0));
+  const pop = t < .6 ? 1 + .35 * Math.exp(-t * 11) * Math.cos(t * 26) : 1;      // 0초에 크게 뛰어들어 튕김
+  const sc = pop * lerp(1, L.f, mv);
+  const tx = 540, ty = lerp(L.cy, L.titleTop + L.f * B.h / 2, mv);
+  const shake = t > .16 && t < .7 ? Math.exp(-(t - .16) * 8) : 0;
+  c.save();
+  c.translate(tx + Math.sin(t * 95) * 9 * shake, ty + Math.cos(t * 83) * 6 * shake); c.scale(sc, sc); c.translate(-540, -L.cy);
+  put(c, B, 1, WHITE, { t, rep: true });
+  // 노란 지그재그 밑줄(.3~.85초에 휙)
+  const u = B.y + B.h + 8, zz = [], n = 9, ww = B.w * .5;
+  for (let i = 0; i <= n; i++) zz.push([540 - ww + (2 * ww) * i / n, u + (i % 2 ? 14 : -4)]);
+  poly(c, zz, prog(t, .3, .55), 11, YELLOW, 11);
+  c.restore();
+  // 쾅 하는 순간(0.16초) 분필 가루가 사방으로
+  const age = t - .16;
+  if (age > 0 && age < .7) {
+    const R = rng(4242); c.save(); c.fillStyle = WHITE;
+    for (let i = 0; i < 46; i++) {
+      const a = R() * 6.283, v = 260 + R() * 520, r = (1 - Math.pow(1 - age / .7, 2)) * v * .5;
+      c.globalAlpha = (1 - age / .7) * .85; c.fillRect(540 + Math.cos(a) * (r + 120), L.cy + Math.sin(a) * (r * .8 + 60), 2 + R() * 3, 2 + R() * 3);
+    }
+    c.restore();
+  }
+}
+function iconCross(c, cy, p) {
+  poly(c, [[490, cy - 50], [590, cy + 50]], prog(p, 0, .5), 20, RED, 3);
+  poly(c, [[590, cy - 50], [490, cy + 50]], prog(p, .45, .55), 20, RED, 4);
+}
+function iconCheck(c, cy, p) { poly(c, [[478, cy], [525, cy + 52], [610, cy - 52]], prog(p, 0, 1), 22, YELLOW, 5); }
+function drawWrong(c, t, sc) {
+  const cu = sc.cue, L = LAY.wrong, rep = t < sc.t1;
+  iconCross(c, L.cy, (t - cu.icon) / .45);
+  L.items.forEach(B => {
+    const st = B.id === 'wrong' ? cu.text : cu.ph;
+    put(c, B, prog(t, st, tlWrite(B.text)), B.color, { t, rep });
+    if (B.id === 'wrong' && t > cu.strike) {     // 음성이 끝나면 오답 줄에 붉은 분필로 긋기
+      B.lines.forEach((ln, i) => { const lx = B.cx - B.lw[i] / 2, my = B.y + i * B.lhp + B.lhp * .52;
+        poly(c, [[lx - 16, my + 6], [lx + B.lw[i] + 16, my - 8]], prog(t, cu.strike + i * .15, .3), 13, RED, 20 + i); });
+    }
+  });
+}
+function drawRight(c, t, sc) {
+  const cu = sc.cue, L = LAY.right, rep = t < sc.t1, st = { right: cu.text, rightPh: cu.ph, roman: cu.roman, rightKo: cu.ko };
+  iconCheck(c, L.cy, (t - cu.icon) / .45);
+  L.items.forEach(B => put(c, B, prog(t, st[B.id], tlWrite(B.text)), B.color, { t, rep }));
+  // 정답 줄 아래 노란 밑줄
+  const R = L.items[0]; if (R && t > cu.text + tlWrite(R.text)) {
+    const last = R.lines.length - 1, lx = R.cx - R.lw[last] / 2, uy = R.y + R.h - R.lhp * .08;
+    poly(c, [[lx, uy + 4], [lx + R.lw[last], uy - 3]], prog(t, cu.text + tlWrite(R.text), .35), 8, YELLOW, 33);
+  }
+}
+function drawExplain(c, t, sc) {
+  const cu = sc.cue, L = LAY.explain, rep = t < sc.t1, [bx, by, bw, bh] = L.box;
+  poly(c, rrPts(bx, by, bw, bh, 34), prog(t, cu.box, .7), 6, PALE, 41);
+  put(c, L.B, prog(t, cu.text, tlWrite(L.B.text)), WHITE, { t, rep });
+}
+function bubble(c, t, r, cu, i) {
+  const hl = i === tl.C.hl, p = (t - cu.bubble) / .45;
+  poly(c, rrPts(r.x, r.y, r.w, r.h, 30), prog(p, 0, 1), hl ? 8 : 5, hl ? YELLOW : WHITE, 60 + i);
+  const ty = r.side === 'L' ? [[r.x + 60, r.y + r.h - 1], [r.x + 32, r.y + r.h + 26], [r.x + 112, r.y + r.h - 1]] : [[r.x + r.w - 60, r.y + r.h - 1], [r.x + r.w - 32, r.y + r.h + 26], [r.x + r.w - 112, r.y + r.h - 1]];
+  poly(c, ty, prog(p, .8, .2), hl ? 8 : 5, hl ? YELLOW : WHITE, 70 + i);
+}
+function drawDialogue(c, t, sc) {
+  const rep = t < sc.t1;
+  LAY.dialogue.forEach((r, i) => {
+    const cu = sc.cue.turns[i]; if (t < cu.bubble) return;
+    bubble(c, t, r, cu, i);
+    [[r.a, cu.line], [r.b, cu.ph], [r.c, cu.ko]].forEach(([B, st]) => B && put(c, B, prog(t, st, tlWrite(B.text)), B.color, { t, rep }));
+  });
+}
+function drawVocab(c, t, sc) {
+  const rep = t < sc.t1;
+  LAY.vocab.forEach((k, i) => {
+    const cu = sc.cue.cards[i]; if (t < cu.word) return;
+    const w = k.w; w.cx = 540; 
+    // 단어는 왼쪽 정렬로 쓴다
+    put(c, w, prog(t, cu.word, tlWrite(w.text)), YELLOW, { t, rep, left: SAFE.x0 + 10 });
+    if (k.ty) put(c, Object.assign(k.ty, { cx: 0 }), prog(t, cu.type, tlWrite(k.ty.text)), PALE, { t, rep, left: SAFE.x1 - k.ty.lw[0] - 10 });
+    if (k.m) put(c, k.m, prog(t, cu.meaning, tlWrite(k.m.text)), WHITE, { t, rep, left: SAFE.x0 + 10 });
+    if (k.p) put(c, k.p, prog(t, cu.ph, tlWrite(k.p.text)), PALE, { t, rep, left: SAFE.x0 + 10 });
+    poly(c, [[SAFE.x0, k.top + 262], [SAFE.x1, k.top + 258]], prog(t, cu.word + .2, .5), 4, PALE, 90 + i);
+  });
+}
+function drawCta(c, t, sc) {
+  const cu = sc.cue, L = LAY.cta, rep = t < sc.t1;
+  // 북마크(저장) 아이콘
+  const bx = 540, by = 330;
+  poly(c, [[bx - 60, by], [bx + 60, by], [bx + 60, by + 150], [bx, by + 108], [bx - 60, by + 150], [bx - 60, by]], prog(t, cu.icon, .7), 13, YELLOW, 8);
+  put(c, L.b, prog(t, cu.text, tlWrite(L.b.text)), YELLOW, { t, rep });
+  const ye = L.b.y + L.b.h + 24;
+  poly(c, [[540 - L.b.w / 2, ye + 6], [540 + L.b.w / 2, ye - 6]], prog(t, cu.text + tlWrite(L.b.text), .4), 8, YELLOW, 15);
+  put(c, L.h, prog(t, cu.handle, tlWrite(L.h.text)), WHITE, { t, rep });
+}
+const tlWrite = tx => LC.writeDur(tx);
+
+// ---------- 지우개 ----------
+function eraser(t, sc) {
+  const p = ease((t - sc.t1) / tl.WIPE), top = sc.wipeTop || SAFE.y0 - 20, bot = 1250;
+  const front = lerp(-60, W + 140, p);
+  return { front, top, bot, p };
+}
+function drawEraserSprite(g, e) {
+  const x = e.front, y0 = e.top - 20, h = e.bot - e.top + 40, w = 150;
+  g.save();
+  g.fillStyle = '#1b1b1b'; g.fillRect(x - w, y0, w, h);                 // 펠트 면
+  const wg = g.createLinearGradient(x - w - 60, 0, x - w, 0); wg.addColorStop(0, '#9a7143'); wg.addColorStop(1, '#7b5630');
+  g.fillStyle = wg; g.fillRect(x - w - 70, y0, 70, h);                    // 나무 등
+  g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(x - w - 70, y0, 70, 6);
+  g.fillStyle = 'rgba(243,241,231,.35)'; for (let i = 0; i < 40; i++) { const r = rng(i * 13 + 5); g.fillRect(x - w + 6 + r() * 130, y0 + r() * h, 2 + r() * 3, 1 + r() * 2); }
+  g.restore();
+}
+
+// ---------- 합성 ----------
+function render(t) {
+  TX = [];
+  if (!tl) return;
+  const sc = tl.scenes;
+  ctx.drawImage(bg, 0, 0);
+  const c = cx2; c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, W, H);
+  // 활성 장면
+  let i = sc.findIndex(s => t >= s.t0 && t < s.t1 + (s.wipe || 0));
+  if (i < 0) i = t < 0 ? 0 : sc.length - 1;
+  const cur = sc[i], wiping = t >= cur.t1 && cur.wipe;
+  let er = null;
+  c.save();
+  if (wiping) {
+    er = eraser(t, cur);
+    c.beginPath(); c.rect(0, 0, W, H); c.rect(0, er.top, Math.max(0, er.front - 30), er.bot - er.top); c.clip('evenodd');
+  }
+  const hk = tl.by.hook;
+  if (t < hk.titleUntil + (cur.id === 'right' && wiping ? tl.WIPE : 0)) drawHook(c, t);
+  ({ hook: () => {}, wrong: () => drawWrong(c, t, cur), right: () => drawRight(c, t, cur), explain: () => drawExplain(c, t, cur),
+     dialogue: () => drawDialogue(c, t, cur), vocab: () => drawVocab(c, t, cur), cta: () => drawCta(c, t, cur) })[cur.id]();
+  c.restore();
+  // 분필 입자: 큰 얼룩 + 고운 알갱이를 뚫어 거친 분필 질감
+  c.globalCompositeOperation = 'destination-out';
+  c.fillStyle = grain.blot; c.fillRect(0, 0, W, H);
+  c.save(); c.translate(((t * 0) | 0), 0); c.fillStyle = grain.fine; c.globalAlpha = .55; c.fillRect(0, 0, W, H); c.restore();
+  c.globalCompositeOperation = 'source-over';
+  if (er) {   // 지나간 자리의 옅은 분필 가루 흔적
+    ctx.save(); ctx.globalAlpha = .07 * (1 - er.p); ctx.fillStyle = WHITE; ctx.fillRect(0, er.top, Math.max(0, er.front - 40), er.bot - er.top); ctx.restore();
+  }
+  ctx.drawImage(cc, 0, 0);
+  if (er) drawEraserSprite(ctx, er);
+}
+
+window.DUR = 1; window.EV = [];
+window.render = render;
+window.TEXTS = () => LC.texts(TX);
+(async function init() {
+  try {
+    const { input, dur, opts } = await LC.load();
+    LANG = input.lang;
+    tl = LC.build(input, dur, opts);
+    window.DUR = tl.DUR; window.EV = tl.EV;
+    // 글꼴 로드 대기: 실제로 쓰는 글자로 요청해야 unicode-range 조각도 내려받는다
+    const sample = [tl.C.hook, tl.C.wrong, tl.C.right, tl.C.explain, tl.C.cta, tl.C.rightKo, tl.C.rightPh, tl.C.roman, ...tl.C.vocab.flatMap(v => [v.word, v.meaning, v.phonetic, v.type]),
+      ...tl.C.dialogue.flatMap(d => [d.line, d.ph, d.ko]), '@langcard.studio 0123456789'].join(' ');
+    await Promise.all(['LCKR', 'LCJP', 'LCSC', 'Fredoka'].map(f => document.fonts.load(`700 40px ${f}`, sample)));
+    await document.fonts.ready;
+    bg = makeBoard(); grain = makeGrain();
+    layout();
+    window.READY = true;
+  } catch (e) { console.error('init failed', e); throw e; }
+})();
+</script></body></html>
