@@ -157,7 +157,11 @@ def parse_queue_listing(text: str) -> dict[str, list[str]]:
 # ── 맥 환경 ──────────────────────────────────────────────────────────
 
 def read_oauth_token() -> str | None:
-    """키체인의 워커 토큰(없으면 None → 일반 로그인). 값은 출력 금지."""
+    """키체인의 워커 토큰(없으면 None → 일반 로그인). 값은 출력 금지.
+    맥이 아니면(미니PC 리눅스, 2026-11-25) 키체인이 없으므로 환경변수 CLAUDE_CODE_OAUTH_TOKEN만 본다."""
+    if sys.platform != "darwin":
+        tok = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
+        return tok if tok.startswith("sk-ant-oat") else None
     try:
         r = subprocess.run(["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
                            capture_output=True, text=True, timeout=10)
@@ -235,7 +239,7 @@ def push_file(host: str, lang: str, local: str, remote_name: str) -> None:
                        capture_output=True, text=True, timeout=600)
     if r.returncode != 0:
         raise RuntimeError(f"scp 실패: {(r.stderr or '')[:300]}")
-    ssh(host, f"mv {remote_dir}/{remote_name}.tmp {remote_dir}/{remote_name} && chown -R langcard:langcard {REMOTE_DIR}/queue")
+    ssh(host, f"mv {remote_dir}/{remote_name}.tmp {remote_dir}/{remote_name} && {{ [ \"$(id -u)\" != 0 ] || chown -R langcard:langcard {REMOTE_DIR}/queue; }}")
 
 
 def write_json(path: str, payload: dict) -> None:
