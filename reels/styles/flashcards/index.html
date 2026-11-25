@@ -1,0 +1,402 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>LangCard - flashcards</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+@font-face{font-family:"LCKR";src:url("fonts/NotoSansKR-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCJP";src:url("fonts/NotoSansJP-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCSC";src:url("fonts/NotoSansSC-Bold.ttf");font-weight:700;font-display:block}
+html,body{margin:0;padding:0;background:#2a180d;overflow:hidden}
+canvas{display:block}
+</style></head>
+<body><canvas id="c"></canvas>
+<script src="common/timeline.js"></script>
+<script src="common/layout.js"></script>
+<script>
+// ===== LangCard / Flashcards 스타일 — 1080x1920, 결정적 render(t) =====
+// 저녁 책상: 절차적 나무결 + 위에서 떨어지는 따뜻한 스탠드 불빛. 내용은 전부 크림색 인덱스 카드 위에.
+// 훅=카드 제목(줄어들어 위에 남음) · WRONG=붉은 ✕ 도장(획으로 그림)+연필 취소선 → 카드가 뒤집혀(scaleX 플립 0.4초) 뒷면에 RIGHT+초록 ✓ ·
+// EXPLAIN=카드에 붙인 노란 포스트잇 · DIALOGUE=작은 카드 두 장(A/B) · VOCAB=부채꼴로 겹친 단어 카드 2장 · CTA=마지막 "오늘의 카드".
+// 전환: 나가는 카드는 왼쪽으로 밀려 나가고 다음 카드는 아래에서 올라온다(타임라인 겹침 그대로). 외부 이미지·영상·음원 0.
+const W = 1080, H = 1920, FPS = 24;
+const SAFE = LCL.SAFE;
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const ctx = cv.getContext('2d');
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+
+const INK = '#3a2e22', SOFT = '#7d6c57', GREEN = '#22704a', RED = '#c0463a', CREAM = '#f7efdb', STICKY_INK = '#4b3a12';
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const sm = x => { x = clamp(x); return x * x * (3 - 2 * x); };
+const ease = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const hash1 = n => rng(Math.imul(n | 0, 2654435761) + 977)();
+const prog = (t, a, d) => clamp((t - a) / d);
+const mix = (a, b, u) => { const h = s => [1, 3, 5].map(i => parseInt(s.slice(i, i + 2), 16)); const A = h(a), B = h(b); return 'rgb(' + A.map((v, i) => Math.round(lerp(v, B[i], clamp(u)))).join(',') + ')'; };
+
+let tl = null, LAY = {}, TX = [], LANG = 'en', LX = null, RM = null, bgC = null, vigC = null;
+
+// ---------- 글꼴 ----------
+const FF_LAT = '"Avenir Next","Helvetica Neue",Arial,LCKR,sans-serif', FF_KO = 'LCKR, LCJP, LCSC, sans-serif';
+let FF_TG = FF_LAT;
+function fontStr(kind, size) {
+  if (kind === 'ko') return `700 ${size}px ${FF_KO}`;
+  if (kind === 'lat') return `700 ${size}px ${FF_LAT}`;
+  if (kind === 'latI') return `italic 600 ${size}px ${FF_LAT}`;
+  return `700 ${size}px ${FF_TG}`;
+}
+
+// ---------- 손으로 그은 선 ----------
+function resample(pts, step, amp, seed) {
+  const out = []; let k = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.round(L / step));
+    for (let j = 0; j < n; j++, k++) { const u = j / n; out.push([lerp(x0, x1, u) + (hash1(seed + k * 2) - .5) * amp, lerp(y0, y1, u) + (hash1(seed + k * 2 + 1) - .5) * amp]); }
+  }
+  out.push(pts[pts.length - 1]); return out;
+}
+function poly(c, pts, p, width, color, seed, amp) {
+  if (p <= 0) return;
+  const P = resample(pts, 14, amp == null ? 2 : amp, seed || 1); let tot = 0; const seg = [];
+  for (let i = 0; i < P.length - 1; i++) { const l = Math.hypot(P[i + 1][0] - P[i][0], P[i + 1][1] - P[i][1]); seg.push(l); tot += l; }
+  const want = tot * clamp(p); let ac = 0;
+  c.save(); c.strokeStyle = color; c.lineWidth = width; c.lineCap = 'round'; c.lineJoin = 'round'; c.beginPath(); c.moveTo(P[0][0], P[0][1]);
+  for (let i = 0; i < seg.length; i++) {
+    if (ac + seg[i] <= want) { c.lineTo(P[i + 1][0], P[i + 1][1]); ac += seg[i]; }
+    else { const u = (want - ac) / seg[i]; c.lineTo(lerp(P[i][0], P[i + 1][0], u), lerp(P[i][1], P[i + 1][1], u)); break; }
+  }
+  c.stroke(); c.restore();
+}
+// 도장: 고무도장 느낌의 원 + 획으로 그린 ✕ 또는 ✓ (p 0~1)
+function stamp(c, cx, cy, r, kind, p, color, seed) {
+  if (p <= 0) return;
+  const pop = 1 + .14 * (1 - sm(p / .5)), al = clamp(p * 5);
+  c.save(); c.translate(cx, cy); c.rotate(kind === 'cross' ? -.2 : .14); c.scale(pop, pop); c.translate(-cx, -cy); c.globalAlpha *= .94 * al;
+  const ring = []; for (let i = 0; i <= 30; i++) { const a = -2.2 + i / 30 * 6.4; ring.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+  poly(c, ring, clamp(p / .45), 7, color, seed, 1.6);
+  const g = clamp((p - .3) / .7);
+  if (kind === 'cross') { poly(c, [[cx - r * .42, cy - r * .42], [cx + r * .42, cy + r * .42]], clamp(g * 2), 10, color, seed + 5, 1.4); poly(c, [[cx + r * .42, cy - r * .42], [cx - r * .42, cy + r * .42]], clamp(g * 2 - 1), 10, color, seed + 9, 1.4); }
+  else poly(c, [[cx - r * .5, cy + r * .02], [cx - r * .14, cy + r * .4], [cx + r * .54, cy - r * .4]], g, 11, color, seed + 5, 1.4);
+  c.restore();
+}
+
+// ---------- 글씨 ----------
+// B: fit() 결과 + {cx,y}(가운데) 또는 o.left(왼쪽 정렬). p 0~1 = 써지는 진행. 읽을 글씨는 전체 문구로 보고(RM이 있으면 뒤집기 전 행렬 기준).
+function put(c, B, p, color, o) {
+  o = o || {};
+  if (p <= 0) return;
+  const mode = o.mode || 'type';
+  const chars = B.lines.map(l => [...l]), total = chars.reduce((s, a) => s + a.length, 0);
+  const shown = mode === 'type' ? clamp(p) * total : total;
+  let cum = 0, x0box = 1e9, x1box = -1e9;
+  c.save();
+  c.font = fontStr(B.kind, B.size); c.textBaseline = 'middle'; c.textAlign = 'left'; c.fillStyle = color;
+  c.globalAlpha *= (o.alpha == null ? 1 : o.alpha) * (mode === 'fade' ? sm(p) : 1);
+  B.lines.forEach((ln, i) => {
+    const n = chars[i].length, lw = B.lw[i], lx = o.left != null ? o.left : B.cx - lw / 2, ty = B.y + i * B.lhp + B.lhp / 2;
+    x0box = Math.min(x0box, lx); x1box = Math.max(x1box, lx + lw);
+    const k = clamp(shown - cum, 0, n); cum += n; if (k <= 0) return;
+    const whole = Math.floor(k), frac = k - whole, s = chars[i].slice(0, whole).join('');
+    if (whole) c.fillText(s, lx, ty);
+    if (frac > 0 && whole < n) { const w0 = whole ? c.measureText(s).width : 0; c.save(); c.globalAlpha *= frac; c.fillText(chars[i][whole], lx + w0, ty); c.restore(); }
+  });
+  c.restore();
+  if (o.rep !== false) {
+    const M = RM || c.getTransform(), P = [[x0box, B.y], [x1box, B.y], [x0box, B.y + B.h], [x1box, B.y + B.h]].map(([x, y]) => [M.a * x + M.c * y + M.e, M.b * x + M.d * y + M.f]);
+    TX.push({ id: B.id, text: B.text, x0: Math.min(...P.map(q => q[0])), x1: Math.max(...P.map(q => q[0])), y0: Math.min(...P.map(q => q[1])), y1: Math.max(...P.map(q => q[1])) });
+  }
+}
+
+// ---------- 카드 ----------
+function rr(c, x, y, w, h, r) { c.beginPath(); c.roundRect(x, y, w, h, r); }
+// o: rule(빨간 윗줄 y 오프셋, 0=없음) lines(파란 줄) sh(그림자 세기) tone(0 밝음~1 어두움) r
+function card(c, x, y, w, h, o) {
+  o = o || {}; const sh = o.sh == null ? 1 : o.sh, r = o.r || 26;
+  c.save();
+  c.shadowColor = 'rgba(20,9,2,.46)'; c.shadowBlur = 46 * sh; c.shadowOffsetY = 20 * sh;
+  const g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, mix('#fcf6e6', '#e9dcc0', (o.tone || 0) * .8)); g.addColorStop(1, mix('#f2e8cf', '#dccfb0', (o.tone || 0) * .8));
+  c.fillStyle = g; rr(c, x, y, w, h, r); c.fill();
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+  c.clip();
+  if (o.rule) {
+    if (o.lines !== false) { c.strokeStyle = 'rgba(86,132,184,.17)'; c.lineWidth = 2; for (let yy = y + o.rule + 70; yy < y + h - 24; yy += 70) { c.beginPath(); c.moveTo(x + 20, yy); c.lineTo(x + w - 20, yy); c.stroke(); } }
+    c.strokeStyle = 'rgba(196,84,70,.62)'; c.lineWidth = 3; c.beginPath(); c.moveTo(x + 18, y + o.rule); c.lineTo(x + w - 18, y + o.rule); c.stroke();
+  }
+  c.restore();
+  c.save(); c.strokeStyle = 'rgba(120,88,46,.28)'; c.lineWidth = 2; rr(c, x + 1, y + 1, w - 2, h - 2, r); c.stroke(); c.restore();
+}
+// 메인 카드(WRONG/RIGHT/EXPLAIN 공용). 플립: sx(가로 배율)·lift(들림). fn 안에서 절대 좌표로 그린다.
+function withCard(c, R, o, fn) {
+  c.save();
+  [[-.032, 14, 10], [.026, -12, 18]].forEach(([rot, dx, dy], i) => { if (o.ghosts === false) return; c.save(); c.translate(R.cx + dx, R.cy + dy); c.rotate(rot); c.translate(-R.cx, -R.cy); card(c, R.x, R.y, R.w, R.h, { sh: .5, tone: .25 + i * .15 }); c.restore(); });
+  c.translate(R.cx, R.cy); c.rotate(R.tilt); c.translate(-R.cx, -R.cy); RM = c.getTransform();
+  const k = o.lift || 1; c.translate(R.cx, R.cy); c.scale((o.sx == null ? 1 : o.sx) * k, k); c.translate(-R.cx, -R.cy);
+  card(c, R.x, R.y, R.w, R.h, { rule: R.rule, sh: o.sh || 1 });
+  fn();
+  RM = null; c.restore();
+}
+function tilted(c, cx, cy, rot, fn) { c.save(); c.translate(cx, cy); c.rotate(rot); c.translate(-cx, -cy); fn(); c.restore(); }
+
+// ---------- 레이아웃 ----------
+const YC = 890;
+function centerStack(items, y0, y1, maxW) {
+  const bl = LX.stack(items, y0, y1, maxW, 540), sh = Math.max(0, ((y1 - y0) - (bl.bottom - y0)) / 2);
+  bl.forEach(b => { b.y += sh; }); return bl;
+}
+function layout() {
+  const C = tl.C, M = LCL.MIN, L = {};
+  FF_TG = LANG === 'en' ? FF_LAT : LANG === 'ja' ? 'LCJP, "Avenir Next", LCKR, sans-serif' : 'LCSC, "Avenir Next", LCKR, sans-serif';
+  LX = LCL.make(ctx, fontStr);
+  // 훅 카드(≥110px). 같은 줄바꿈 그대로 52px 제목 카드가 되어 위에 남는다
+  const PADT = 108, PADB = 76, CW = 900;
+  const hb = LX.fit(C.hook, 'ko', { maxW: 790, maxLines: 4, s0: 150, s1: M.hook, lh: 1.26 });
+  hb.id = 'hook'; hb.cx = 540;
+  const ch = hb.h + PADT + PADB, ctop = YC - ch / 2; hb.y = ctop + PADT;
+  const f = Math.min(1, M.title / hb.size), titleTop = 304, bottomFinal = titleTop + f * ch;
+  L.hook = { B: hb, f, ch, ctop, cy: ctop + ch / 2, cyFinal: titleTop + f * ch / 2, rule: 66 };
+  // 메인 카드: 제목 카드 아래 ~ 1450
+  const top = Math.max(bottomFinal + 54, 470), bot = 1452;
+  const R = { x: 90, y: top, w: 900, h: bot - top, rule: 112, tilt: -.012 }; R.cx = R.x + R.w / 2; R.cy = R.y + R.h / 2; L.main = R;
+  L.stamp = { cx: R.x + R.w - 100, cy: R.y + 60, r: 42 };
+  const iy0 = R.y + 130, iy1 = R.y + R.h - 58;
+  const ml = (txt, mw) => LX.fit(txt, 'tg', { maxW: mw, maxLines: 2, s0: 120, s1: M.body, lh: 1.24 }).lines.length <= 2 ? 2 : 3;
+  L.wrong = { items: centerStack([
+    { id: 'wrong', text: C.wrong, kind: 'tg', s0: 120, s1: M.body, maxLines: ml(C.wrong, 780), lh: 1.24 },
+    { id: 'wrongPh', text: C.wrongPh, kind: 'ko', s0: 60, s1: 40, maxLines: 2, gap: 40, lh: 1.3 }], iy0, iy1, 780) };
+  L.right = { items: centerStack([
+    { id: 'right', text: C.right, kind: 'tg', s0: 124, s1: M.body, maxLines: ml(C.right, 780), lh: 1.24 },
+    { id: 'rightPh', text: C.rightPh, kind: 'ko', s0: 60, s1: 40, maxLines: 2, gap: 46, lh: 1.3 },
+    { id: 'roman', text: C.roman, kind: 'latI', s0: 56, s1: 36, maxLines: 2, gap: 14, lh: 1.25 },
+    { id: 'rightKo', text: C.rightKo, kind: 'ko', s0: 66, s1: 44, maxLines: 3, gap: 40, lh: 1.32 }], iy0, iy1, 780) };
+  // EXPLAIN: 포스트잇
+  if (C.explain) {
+    const b = LX.fit(C.explain, 'ko', { maxW: 650, maxLines: 5, s0: 96, s1: 60, lh: 1.36 }); b.id = 'explain'; b.cx = 540;
+    const sw = Math.min(800, Math.max(640, b.w + 110)), sh = b.h + 170, cyS = R.y + 130 + (R.h - 130) / 2 + 6;
+    b.y = cyS - sh / 2 + 108; L.explain = { B: b, S: { x: 540 - sw / 2, y: cyS - sh / 2, w: sw, h: sh, cx: 540, cy: cyS } };
+    const lb = LX.fit('왜 그럴까요?', 'ko', { maxW: 560, maxLines: 1, s0: 50, s1: 44, lh: 1.2 }); lb.id = 'exLabel'; lb.y = R.y + 56 - lb.h / 2; L.exLabel = lb;
+  }
+  // DIALOGUE: 작은 카드 2장
+  L.dialogue = LX.dialogue(C.dialogue, { y0: 400, y1: 1350, gap: 96, maxInner: 780 });
+  L.dialogue.forEach((r, i) => { [r.a, r.b, r.c].forEach((p, k) => { if (p) p.color = (k === 0 && i === C.hl) ? GREEN : (k === 1 ? SOFT : INK); }); });
+  // VOCAB: 부채꼴로 겹친 단어 카드 2장
+  { const CWV = 860, OV = 6, PX = 62;
+    const cards = C.vocab.map((v, i) => {
+      const w = LX.fit(v.word, 'tg', { maxW: 540, maxLines: 1, s0: 128, s1: 72, lh: 1.15 }); w.id = 'v' + i + 'w';
+      const ty = v.type ? LX.fit(v.type, 'ko', { maxW: 210, maxLines: 1, s0: 40, s1: 32, lh: 1.2 }) : null; if (ty) ty.id = 'v' + i + 't';
+      const m = v.meaning ? LX.fit(v.meaning, 'ko', { maxW: 740, maxLines: 2, s0: 60, s1: 44, lh: 1.3 }) : null; if (m) m.id = 'v' + i + 'm';
+      const p = v.phonetic ? LX.fit(v.phonetic, 'ko', { maxW: 740, maxLines: 1, s0: 50, s1: 38, lh: 1.25 }) : null; if (p) p.id = 'v' + i + 'p';
+      return { w, ty, m, p, h: 52 + w.h + 14 + (m ? m.h : 0) + (p ? p.h + 8 : 0) + 70 };
+    });
+    const tot = cards.reduce((s, c) => s + c.h, 0) - OV * (cards.length - 1);
+    let y = Math.max(340, 880 - tot / 2);
+    cards.forEach((k, i) => {
+      k.x = 110 + (i ? 14 : -14); k.y = y; k.w0 = CWV; k.rot = i ? .042 : -.05; k.cx = k.x + CWV / 2; k.cy = k.y + k.h / 2;
+      const lx = k.x + PX; k.lx = lx; let yy = y + 52; k.w.y = yy; if (k.ty) k.ty.y = yy + (k.w.h - k.ty.h) / 2 + 4; yy += k.w.h + 14;
+      if (k.m) { k.m.y = yy; yy += k.m.h; } if (k.p) k.p.y = yy + 8; y += k.h - OV;
+    });
+    L.vocab = cards; }
+  // CTA: 마지막 카드
+  { const lb = LX.fit('오늘의 카드', 'ko', { maxW: 520, maxLines: 1, s0: 48, s1: 40, lh: 1.2 }); lb.id = 'ctaLabel'; lb.cx = 540;
+    const b = LX.fit(C.cta || C.handle, 'ko', { maxW: 760, maxLines: 4, s0: 104, s1: 64, lh: 1.34 }); b.id = 'cta'; b.cx = 540;
+    const h = LX.fit(C.handle, 'lat', { maxW: 640, maxLines: 1, s0: 70, s1: 44, lh: 1.2 }); h.id = 'handle'; h.cx = 540;
+    const pillH = h.h + 34, HH = 112 + 70 + b.h + 74 + pillH + 78, top2 = YC - HH / 2 + 8;
+    const Rc = { x: 90, y: top2, w: 900, h: HH, rule: 112, tilt: .01 }; Rc.cx = 540; Rc.cy = top2 + HH / 2;
+    lb.y = top2 + 56 - lb.h / 2; b.y = top2 + 112 + 70; h.y = b.y + b.h + 74 + 17;
+    L.cta = { R: Rc, lb, b, h, pill: { w: h.w + 90, h: pillH, y: b.y + b.h + 74 } }; }
+  LAY = L;
+}
+
+// ---------- 장면 그리기 ----------
+function drawHook(c, t, alpha) {
+  const L = LAY.hook, B = L.B, hk = tl.by.hook, [m0, m1] = hk.cue.move, mv = ease((t - m0) / (m1 - m0)), rep = t < hk.titleUntil;
+  const f = lerp(1, L.f, mv), ty = lerp(L.cy, L.cyFinal, mv), drop = (1 - ease(t / .5)) * -46 * (1 - mv);
+  c.save(); c.globalAlpha *= alpha;
+  c.translate(540, ty + drop); c.rotate(lerp(0, -.02, mv)); c.scale(f, f); c.translate(-540, -L.cy);
+  card(c, 540 - 450, L.ctop, 900, L.ch, { rule: L.rule, lines: false, sh: lerp(1, .7, mv) });
+  put(c, B, 1, INK, { mode: 'fade', alpha: .55 + .45 * sm(t / .35), rep });
+  c.restore();
+}
+function faceWrong(c, t, sc, rep) {
+  const cu = sc.cue, L = LAY.wrong, S = LAY.stamp;
+  L.items.forEach(B => {
+    const isW = B.id === 'wrong', st = isW ? cu.text : cu.ph;
+    put(c, B, prog(t, st, LC.writeDur(B.text)), isW ? mix(INK, '#8e8171', prog(t, cu.strike, .5)) : SOFT, { rep });
+    if (isW && t > cu.strike) B.lines.forEach((ln, i) => {
+      const lx = B.cx - B.lw[i] / 2, my = B.y + i * B.lhp + B.lhp * .54;
+      poly(c, [[lx - 14, my + 5], [lx + B.lw[i] * .5, my - 3], [lx + B.lw[i] + 14, my - 7]], prog(t, cu.strike + i * .12, .34), 7, 'rgba(192,70,58,.9)', 20 + i);
+    });
+  });
+  stamp(c, S.cx, S.cy, S.r, 'cross', prog(t, cu.icon, .55), RED, 3);
+}
+function faceRight(c, t, sc, rep) {
+  const cu = sc.cue, L = LAY.right, S = LAY.stamp, st = { right: cu.text, rightPh: cu.ph, roman: cu.roman, rightKo: cu.ko };
+  L.items.forEach(B => put(c, B, prog(t, st[B.id], LC.writeDur(B.text)), B.id === 'right' ? GREEN : B.id === 'rightKo' ? INK : SOFT, { rep }));
+  stamp(c, S.cx, S.cy, S.r, 'check', prog(t, sc.t0 + .2, .5), GREEN, 7);
+}
+function drawWrong(c, t, sc) { withCard(c, LAY.main, {}, () => faceWrong(c, t, sc, t < sc.t1)); }
+function drawRight(c, t, sc) {
+  const p = prog(t, sc.t0, .4), flipping = p < 1, sx = flipping ? Math.max(.012, Math.abs(Math.cos(Math.PI * p))) : 1;
+  withCard(c, LAY.main, { sx, lift: 1 + .045 * Math.sin(Math.PI * p), sh: 1 + .9 * Math.sin(Math.PI * p) }, () => {
+    if (flipping && p < .5) faceWrong(c, t, tl.by.wrong, false); else faceRight(c, t, sc, t < sc.t1);
+  });
+}
+function drawExplain(c, t, sc) {
+  const cu = sc.cue, L = LAY.explain, S = L.S, rep = t < sc.t1, a = sm(prog(t, cu.box, .3));
+  withCard(c, LAY.main, {}, () => {
+    put(c, LAY.exLabel, prog(t, cu.text, .5), SOFT, { rep, left: LAY.main.x + 64 });
+    stamp(c, LAY.stamp.cx, LAY.stamp.cy, LAY.stamp.r, 'check', prog(t, cu.box + .15, .5), GREEN, 11);
+    const k = 1 + .1 * (1 - sm(prog(t, cu.box, .3)));
+    c.save(); c.globalAlpha *= a; c.translate(S.cx, S.cy); c.rotate(-.05); c.scale(k, k); c.translate(-S.cx, -S.cy);
+    c.shadowColor = 'rgba(30,14,2,.42)'; c.shadowBlur = 26; c.shadowOffsetY = 14;
+    const g = c.createLinearGradient(S.x, S.y, S.x + S.w, S.y + S.h); g.addColorStop(0, '#ffe98a'); g.addColorStop(1, '#fbd35a');
+    c.fillStyle = g; c.fillRect(S.x, S.y, S.w, S.h);
+    c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+    c.fillStyle = 'rgba(160,110,20,.22)'; c.beginPath(); c.moveTo(S.x + S.w - 58, S.y + S.h); c.lineTo(S.x + S.w, S.y + S.h - 58); c.lineTo(S.x + S.w, S.y + S.h); c.closePath(); c.fill();   // 말린 모서리
+    c.save(); c.translate(S.cx, S.y + 6); c.rotate(.04); c.fillStyle = 'rgba(250,244,228,.62)'; c.fillRect(-84, -22, 168, 46); c.strokeStyle = 'rgba(130,100,60,.3)'; c.lineWidth = 2; c.strokeRect(-84, -22, 168, 46); c.restore();   // 마스킹 테이프
+    c.save(); put(c, L.B, prog(t, cu.text, LC.writeDur(L.B.text)), STICKY_INK, { rep }); c.restore();
+    c.restore();
+  });
+}
+function drawDialogue(c, t, sc) {
+  const rep = t < sc.t1;
+  LAY.dialogue.forEach((r, i) => {
+    const cu = sc.cue.turns[i]; if (t < cu.bubble) return;
+    const q = prog(t, cu.bubble, .3), e = ease(q), dx = (r.side === 'L' ? -1 : 1) * (1 - e) * 150, hl = i === tl.C.hl, cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    c.save(); c.globalAlpha *= clamp(q * 2.5); c.translate(dx, 0);
+    tilted(c, cx, cy, r.side === 'L' ? -.016 : .016, () => {
+      card(c, r.x, r.y, r.w, r.h, { sh: .85, r: 22 });
+      const bx = r.x + 46, by = r.y - 2; c.save(); c.shadowColor = 'rgba(20,9,2,.3)'; c.shadowBlur = 10; c.shadowOffsetY = 4;
+      c.fillStyle = i ? '#4e8a85' : '#c9674f'; c.beginPath(); c.arc(bx, by, 29, 0, 7); c.fill(); c.restore();
+      c.fillStyle = CREAM; c.font = fontStr('lat', 34); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('AB'[i], bx, by + 2);
+      [[r.a, cu.line], [r.b, cu.ph], [r.c, cu.ko]].forEach(([B, s]) => B && put(c, B, prog(t, s, LC.writeDur(B.text)), B.color, { rep }));
+      if (hl) stamp(c, r.x + r.w - 14, r.y - 8, 24, 'check', prog(t, cu.line + .3, .5), GREEN, 13);
+    });
+    c.restore();
+  });
+}
+function drawVocab(c, t, sc) {
+  const rep = t < sc.t1;
+  LAY.vocab.forEach((k, i) => {
+    const cu = sc.cue.cards[i]; if (t < cu.word - .02) return;
+    const q = prog(t, cu.word - .02, .4), e = ease(q);
+    c.save(); c.globalAlpha *= clamp(q * 3);
+    c.translate(0, (1 - e) * 120);
+    tilted(c, k.cx, k.cy, k.rot * (.4 + .6 * e), () => {
+      card(c, k.x, k.y, k.w0, k.h, { rule: 0, sh: .9, r: 24 });
+      c.fillStyle = 'rgba(86,132,184,.15)'; for (let yy = k.y + 52 + k.w.h + 6; yy < k.y + k.h - 20; yy += 64) c.fillRect(k.x + 22, yy, k.w0 - 44, 2);
+      put(c, k.w, prog(t, cu.word, LC.writeDur(k.w.text)), INK, { rep, left: k.lx });
+      if (k.ty) { const pw = k.ty.lw[0] + 36; c.save(); c.fillStyle = 'rgba(150,108,56,.2)'; rr(c, k.x + k.w0 - 62 - pw, k.ty.y + 2, pw, k.ty.h - 4, (k.ty.h - 4) / 2); c.fill(); c.restore(); put(c, k.ty, prog(t, cu.type, LC.writeDur(k.ty.text)), SOFT, { rep, left: k.x + k.w0 - 62 - pw + 18 }); }
+      if (k.m) put(c, k.m, prog(t, cu.meaning, LC.writeDur(k.m.text)), GREEN, { rep, left: k.lx });
+      if (k.p) put(c, k.p, prog(t, cu.ph, LC.writeDur(k.p.text)), SOFT, { rep, left: k.lx });
+    });
+    c.restore();
+  });
+}
+function drawCta(c, t, sc) {
+  const cu = sc.cue, L = LAY.cta, R = L.R, rep = t < sc.t1, rise = -18 * prog(t, sc.t0, sc.t1 - sc.t0);
+  c.save(); c.translate(0, rise);
+  withCard(c, R, {}, () => {
+    // 북마크 리본(저장)
+    c.save(); c.fillStyle = '#c4503f'; c.shadowColor = 'rgba(40,10,2,.3)'; c.shadowBlur = 8; c.shadowOffsetY = 4;
+    const rx = R.x + 66, ry = R.y, rh = 128 * ease(prog(t, cu.icon, .5)); if (rh > 4) { c.beginPath(); c.moveTo(rx, ry); c.lineTo(rx + 54, ry); c.lineTo(rx + 54, ry + rh); c.lineTo(rx + 27, ry + rh - 24); c.lineTo(rx, ry + rh); c.closePath(); c.fill(); } c.restore();
+    put(c, L.lb, prog(t, cu.text, .5), SOFT, { rep });
+    stamp(c, R.x + R.w - 100, R.y + 60, 42, 'check', prog(t, cu.icon + .1, .55), GREEN, 17);
+    put(c, L.b, prog(t, cu.text, LC.writeDur(L.b.text)), INK, { rep });
+    const p = L.pill, pa = sm(prog(t, cu.handle - .1, .4));
+    c.save(); c.globalAlpha *= pa; c.fillStyle = '#4a3523'; c.shadowColor = 'rgba(30,14,2,.35)'; c.shadowBlur = 14; c.shadowOffsetY = 6; rr(c, 540 - p.w / 2, p.y, p.w, p.h, p.h / 2); c.fill(); c.restore();
+    put(c, L.h, prog(t, cu.handle, LC.writeDur(L.h.text) + .3), '#f7efdb', { rep, mode: 'fade' });
+  });
+  c.restore();
+}
+const DRAW = { hook: () => {}, wrong: drawWrong, right: drawRight, explain: drawExplain, dialogue: drawDialogue, vocab: drawVocab, cta: drawCta };
+
+// ---------- 정적 배경: 나무 책상 + 스탠드 불빛 ----------
+function makeBg() {
+  const c = mk(W, H), g = c.getContext('2d'), r = rng(7);
+  const base = g.createLinearGradient(0, 0, W, 0); base.addColorStop(0, '#5c3b22'); base.addColorStop(.33, '#684327'); base.addColorStop(.66, '#5a3920'); base.addColorStop(1, '#4f321c');
+  g.fillStyle = base; g.fillRect(0, 0, W, H);
+  // 널빤지 3장(톤 차이) + 이음매
+  [[0, '#7a5030', .08], [360, '#2a1608', .1], [720, '#8a5c38', .07]].forEach(([x, col, a]) => { g.fillStyle = col; g.globalAlpha = a; g.fillRect(x, 0, 360, H); });
+  g.globalAlpha = 1;
+  [360, 720].forEach(x => { g.fillStyle = 'rgba(20,9,2,.55)'; g.fillRect(x - 2, 0, 4, H); g.fillStyle = 'rgba(255,200,140,.10)'; g.fillRect(x + 2, 0, 2, H); });
+  // 나뭇결: 세로로 흐르는 가는 곡선
+  for (let i = 0; i < 230; i++) {
+    const x0 = r() * W, w = .6 + r() * 2, dark = r() < .62, a = .035 + r() * .07, ph = r() * 6.28, amp = 4 + r() * 16, fq = .0018 + r() * .003, y0 = r() * H * .6, len = 500 + r() * 1400;
+    g.strokeStyle = dark ? `rgba(32,16,6,${a})` : `rgba(210,150,95,${a * .8})`; g.lineWidth = w; g.beginPath();
+    for (let y = y0; y < Math.min(H, y0 + len); y += 24) { const x = x0 + Math.sin(y * fq + ph) * amp + Math.sin(y * fq * 3.1 + ph) * amp * .25; y === y0 ? g.moveTo(x, y) : g.lineTo(x, y); }
+    g.stroke();
+  }
+  // 옹이 몇 개
+  for (let i = 0; i < 4; i++) { const x = 80 + r() * 920, y = 150 + r() * 1650; for (let k = 0; k < 6; k++) { g.strokeStyle = `rgba(30,14,5,${.06 - k * .007})`; g.lineWidth = 2; g.beginPath(); g.ellipse(x, y, 10 + k * 7, 26 + k * 17, 0, 0, 7); g.stroke(); } }
+  // 소품: 연필과 찻잔 자국(화면 가장자리, 글자 영역 밖)
+  g.save(); g.translate(300, 1722); g.rotate(-.07); g.shadowColor = 'rgba(15,6,0,.5)'; g.shadowBlur = 14; g.shadowOffsetY = 8;
+  g.fillStyle = '#d9a93a'; g.fillRect(0, -13, 470, 26); g.shadowColor = 'transparent';
+  g.fillStyle = 'rgba(255,240,170,.35)'; g.fillRect(0, -13, 470, 7); g.fillStyle = 'rgba(80,50,0,.25)'; g.fillRect(0, 6, 470, 7);
+  g.fillStyle = '#e9cfa0'; g.beginPath(); g.moveTo(470, -13); g.lineTo(535, 0); g.lineTo(470, 13); g.closePath(); g.fill();
+  g.fillStyle = '#3b3027'; g.beginPath(); g.moveTo(520, -4); g.lineTo(535, 0); g.lineTo(520, 4); g.closePath(); g.fill();
+  g.fillStyle = '#c9675a'; g.fillRect(-46, -13, 46, 26); g.fillStyle = '#b8b0a2'; g.fillRect(-4, -13, 6, 26); g.restore();
+  g.strokeStyle = 'rgba(20,9,2,.16)'; g.lineWidth = 9; g.beginPath(); g.arc(930, 1716, 76, .2, 5.9); g.stroke();
+  // 스탠드 불빛(위에서 퍼지는 따뜻한 웅덩이) + 가장자리 어둡게
+  let gr = g.createRadialGradient(560, 40, 40, 560, 300, 1500); gr.addColorStop(0, 'rgba(255,220,160,.52)'); gr.addColorStop(.35, 'rgba(255,196,120,.24)'); gr.addColorStop(.7, 'rgba(255,170,90,.07)'); gr.addColorStop(1, 'rgba(255,170,90,0)');
+  g.save(); g.globalCompositeOperation = 'screen'; g.fillStyle = gr; g.fillRect(0, 0, W, H); g.restore();
+  gr = g.createRadialGradient(540, 760, 380, 540, 900, 1400); gr.addColorStop(0, 'rgba(10,4,0,0)'); gr.addColorStop(.6, 'rgba(10,4,0,.32)'); gr.addColorStop(1, 'rgba(8,3,0,.74)');
+  g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  // 아주 약한 고정 디더(띠 현상 방지, 정지 화면이라 용량 영향 작음)
+  const im = g.getImageData(0, 0, W, H), d = im.data, rn = rng(99);
+  for (let i = 0; i < d.length; i += 4) { const n = (rn() - .5) * 5; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+  g.putImageData(im, 0, 0);
+  return c;
+}
+
+// ---------- 합성 ----------
+function layer(c, si, t, mode, q) {   // mode: 'in' 아래에서 올라옴 | 'out' 왼쪽으로 밀려남 | 'plain'
+  const sc = tl.scenes[si]; let dx = 0, dy = 0, rot = 0, a = 1;
+  if (mode === 'in') { const e = ease(q); dy = (1 - e) * 340; rot = (1 - e) * .035; a = clamp(q * 3.5); }
+  if (mode === 'out') { const e = ease(q); dx = -e * 1300; rot = -e * .1; a = 1 - sm(q * 1.05); }
+  c.save(); c.globalAlpha = a; c.translate(540 + dx, 890 + dy); c.rotate(rot); c.translate(-540, -890);
+  DRAW[sc.id](c, t, sc); c.restore();
+}
+function render(t) {
+  TX = []; RM = null;
+  if (!tl) return;
+  const sc = tl.scenes, DURs = tl.DUR, hk = tl.by.hook;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
+  ctx.drawImage(bgC, 0, 0);
+  let i = 0; for (let k = 0; k < sc.length; k++) if (sc[k].t0 <= t) i = k;
+  const cur = sc[i], prev = i > 0 ? sc[i - 1] : null;
+  if (prev && prev.wipe > 0 && t < prev.t1 + prev.wipe && prev.id !== 'wrong') layer(ctx, i - 1, t, 'out', (t - prev.t1) / prev.wipe);
+  if (cur.id !== 'hook') {
+    const q = prog(t, cur.t0, .4);
+    layer(ctx, i, t, (cur.id === 'right' || q >= 1) ? 'plain' : 'in', q);
+  }
+  // 제목 카드: RIGHT가 끝날 때까지 위에 남았다가 위로 올라가며 사라진다
+  const tEnd = hk.titleUntil, q = prog(t, tEnd, .4);
+  if (t < tEnd + .4) {
+    ctx.save(); ctx.translate(0, -ease(q) * 420); drawHook(ctx, t, 1 - sm(q * 1.1)); ctx.restore();
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; RM = null;
+  ctx.drawImage(vigC, 0, 0);
+  const fout = sm((t - (DURs - .8)) / .8); if (fout > 0) { ctx.fillStyle = `rgba(14,6,0,${fout * .92})`; ctx.fillRect(0, 0, W, H); }
+}
+
+window.DUR = 1; window.EV = [];
+window.render = render;
+window.TEXTS = () => LC.texts(TX);
+(async function init() {
+  try {
+    const { input, dur, opts } = await LC.load();
+    LANG = input.lang;
+    tl = LC.buildAuto(input, dur, opts);
+    window.DUR = tl.DUR; window.EV = tl.EV;
+    const sample = [tl.C.hook, tl.C.wrong, tl.C.right, tl.C.explain, tl.C.cta, tl.C.rightKo, tl.C.rightPh, tl.C.roman, ...tl.C.vocab.flatMap(v => [v.word, v.meaning, v.phonetic, v.type]),
+      ...tl.C.dialogue.flatMap(d => [d.line, d.ph, d.ko]), '@langcard.studio 0123456789 왜 그럴까요? 오늘의 카드 AB'].join(' ');
+    await Promise.all(['LCKR', 'LCJP', 'LCSC'].map(f => document.fonts.load(`700 40px ${f}`, sample)));
+    await document.fonts.ready;
+    // 비네트(가장자리 약간 어둡게) — 배경과 별개로 한 번 더 얹어 카드 가장자리도 눌러 준다
+    vigC = mk(W, H); { const g = vigC.getContext('2d'), gr = g.createRadialGradient(540, 930, 560, 540, 930, 1300); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(8,3,0,.38)'); g.fillStyle = gr; g.fillRect(0, 0, W, H); }
+    bgC = makeBg();
+    layout();
+    window.READY = true;
+  } catch (e) { console.error('init failed', e); throw e; }
+})();
+</script></body></html>

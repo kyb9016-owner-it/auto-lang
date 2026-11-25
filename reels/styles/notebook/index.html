@@ -1,0 +1,394 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>LangCard - notebook</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+@font-face{font-family:"LCKR";src:url("fonts/NotoSansKR-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCJP";src:url("fonts/NotoSansJP-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCSC";src:url("fonts/NotoSansSC-Bold.ttf");font-weight:700;font-display:block}
+html,body{margin:0;padding:0;background:#6e6354;overflow:hidden}
+canvas{display:block}
+</style></head>
+<body><canvas id="c"></canvas>
+<script src="common/timeline.js"></script>
+<script src="common/layout.js"></script>
+<script>
+// ===== LangCard / Notebook 스타일 — 1080x1920, 결정적 render(t) =====
+// 위에서 내려다본 스프링 노트: 아이보리 괘선지(옅은 파란 줄 + 빨간 여백선) + 책상 위 그림자.
+// 글씨는 손글씨 폰트(영 Bradley Hand / 일 Klee / 중 Hannotate SC / 한 Noto Sans KR)를 슬라이스 클립으로 "써 내려간다"(chalkboard와 같은 방식).
+// 색: 남색 잉크=본문, 파랑 잉크=정답, 연필=오답·보조, 빨간 펜=취소선·밑줄·체크, 노란 형광펜=정답 강조(글씨 뒤).
+// 장면 전환은 페이지 넘김: 새 장면은 아래에 이미 깔려 있고, 옛 페이지가 스파인(왼쪽)을 축으로 접혀 넘어간다(0.4초).
+// 외부 이미지·영상·음원 0 — 전부 코드로 그린다. 종이 질감·그림자는 정지 레이어 1장이라 인코딩 용량이 작다.
+const W = 1080, H = 1920;
+const SAFE = LCL.SAFE;
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const ctx = cv.getContext('2d');
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const PA = mk(W, H), pa = PA.getContext('2d');          // 새 페이지(현재 장면)
+const PB = mk(W, H), pb = PB.getContext('2d');          // 넘어가는 옛 페이지
+const MC = mk(8, 8), mctx = MC.getContext('2d');        // 글자 측정용
+
+const INK = '#1d2b4a', BLUE = '#1f4fc2', PENCIL = '#565b63', PENCIL2 = '#7b8088', RED = '#d2362d', HL = 'rgba(255,224,64,.74)';
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const eo = x => { x = clamp(x); return 1 - Math.pow(1 - x, 3); };
+const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const hash1 = n => rng(Math.imul(n | 0, 2654435761) + 977)();
+const prog = (t, a, d) => clamp((t - a) / d);
+
+let tl = null, LAY = {}, TX = [], LANG = 'en', LX = null;
+let deskC = null, paperC = null;
+
+// ---------- 글꼴 ----------
+const STACK = { ko: 'LCKR, LCJP, LCSC, sans-serif', tg: null };
+const fontStr = (kind, size) => `700 ${size}px ${STACK[kind]}`;
+
+// ---------- 정지 레이어: 책상 / 노트 ----------
+const PG = { x: 16, y: 26, w: 1048, h: 1868 };            // 페이지 면
+const SPINE = 46;                                         // 스프링 축(페이지 넘김의 회전축)
+function makeDesk() {
+  const c = mk(W, H), g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, W, H); gr.addColorStop(0, '#8d8070'); gr.addColorStop(1, '#6f6455');
+  g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  const r = rng(3);
+  for (let i = 0; i < 40; i++) { g.strokeStyle = `rgba(${r() < .5 ? '255,255,255' : '0,0,0'},${.02 + .03 * r()})`; g.lineWidth = 1 + r() * 2; g.beginPath(); const y = r() * H; g.moveTo(0, y); g.bezierCurveTo(W * .3, y + (r() - .5) * 30, W * .7, y + (r() - .5) * 30, W, y + (r() - .5) * 20); g.stroke(); }
+  return c;
+}
+function makePaper() {
+  const c = mk(W, H), g = c.getContext('2d'), { x, y, w, h } = PG;
+  g.save(); g.shadowColor = 'rgba(30,18,6,.5)'; g.shadowBlur = 30; g.shadowOffsetX = 5; g.shadowOffsetY = 10; g.fillStyle = '#f6f2e6'; g.fillRect(x, y, w, h); g.restore();
+  g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
+  const lg = g.createLinearGradient(x, y, x + w, y + h); lg.addColorStop(0, '#fbf8ee'); lg.addColorStop(1, '#f1ecdd'); g.fillStyle = lg; g.fillRect(x, y, w, h);
+  const r = rng(21);                                      // 낮은 잡음: 256 타일 한 장을 깔고 옅은 섬유 몇 가닥
+  const t = mk(256, 256), tg = t.getContext('2d'), im = tg.createImageData(256, 256);
+  for (let i = 0; i < 256 * 256; i++) { const v = r() < .5 ? 0 : 255; im.data[i * 4] = v; im.data[i * 4 + 1] = v; im.data[i * 4 + 2] = v; im.data[i * 4 + 3] = Math.floor(r() * 9); }
+  tg.putImageData(im, 0, 0); g.fillStyle = g.createPattern(t, 'repeat'); g.fillRect(x, y, w, h);
+  for (let i = 0; i < 90; i++) { g.strokeStyle = `rgba(150,130,100,${.05 + .05 * r()})`; g.lineWidth = 1; g.beginPath(); const fx = x + r() * w, fy = y + r() * h, a = r() * 6.28, l = 6 + r() * 16; g.moveTo(fx, fy); g.lineTo(fx + Math.cos(a) * l, fy + Math.sin(a) * l); g.stroke(); }
+  const eg = g.createLinearGradient(x, 0, x + 70, 0); eg.addColorStop(0, 'rgba(60,40,20,.14)'); eg.addColorStop(1, 'rgba(60,40,20,0)'); g.fillStyle = eg; g.fillRect(x, y, 70, h);   // 철 쪽 접힌 그늘
+  const vg = g.createRadialGradient(540, 960, 600, 540, 960, 1250); vg.addColorStop(0, 'rgba(90,60,20,0)'); vg.addColorStop(1, 'rgba(90,60,20,.10)'); g.fillStyle = vg; g.fillRect(x, y, w, h);
+  g.strokeStyle = 'rgba(110,150,210,.46)'; g.lineWidth = 2;   // 파란 괘선
+  for (let ly = 150; ly < y + h - 20; ly += 76) { g.beginPath(); g.moveTo(x, ly); g.lineTo(x + w, ly + .0); g.stroke(); }
+  g.strokeStyle = 'rgba(214,70,66,.6)'; g.lineWidth = 3; g.beginPath(); g.moveTo(74, y); g.lineTo(74, y + h); g.stroke();   // 빨간 여백선
+  g.strokeStyle = 'rgba(214,70,66,.35)'; g.lineWidth = 2; g.beginPath(); g.moveTo(79, y); g.lineTo(79, y + h); g.stroke();
+  g.restore();
+  // 스프링 구멍 + 코일
+  for (let sy = 90; sy < H - 60; sy += 76) {
+    g.fillStyle = 'rgba(40,30,20,.55)'; g.beginPath(); g.ellipse(44, sy, 13, 9, 0, 0, 7); g.fill();
+    g.fillStyle = 'rgba(0,0,0,.25)'; g.beginPath(); g.ellipse(48, sy + 2, 13, 8, 0, 0, 7); g.fill();
+    const cg = g.createLinearGradient(0, sy - 12, 0, sy + 12); cg.addColorStop(0, '#e8e8ea'); cg.addColorStop(.5, '#9a9ca2'); cg.addColorStop(1, '#5d5f66');
+    g.strokeStyle = cg; g.lineWidth = 7; g.lineCap = 'round'; g.beginPath(); g.moveTo(8, sy + 14); g.bezierCurveTo(26, sy - 18, 66, sy - 18, 78, sy + 4); g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 2; g.beginPath(); g.moveTo(12, sy + 8); g.bezierCurveTo(28, sy - 12, 60, sy - 12, 72, sy + 2); g.stroke();
+  }
+  return c;
+}
+
+// ---------- 손으로 그은 선 ----------
+function resample(pts, step, amp, seed) {
+  const out = []; let k = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.round(L / step));
+    for (let j = 0; j < n; j++, k++) { const u = j / n; out.push([lerp(x0, x1, u) + (hash1(seed + k * 2) - .5) * amp, lerp(y0, y1, u) + (hash1(seed + k * 2 + 1) - .5) * amp]); }
+  }
+  out.push(pts[pts.length - 1]); return out;
+}
+function poly(c, pts, p, width, color, seed, alpha) {
+  if (p <= 0) return;
+  const P = resample(pts, 14, 1.8, seed || 1); let tot = 0; const seg = [];
+  for (let i = 0; i < P.length - 1; i++) { const l = Math.hypot(P[i + 1][0] - P[i][0], P[i + 1][1] - P[i][1]); seg.push(l); tot += l; }
+  const want = tot * clamp(p); let ac = 0;
+  c.save(); c.strokeStyle = color; c.globalAlpha *= (alpha == null ? 1 : alpha); c.lineWidth = width; c.lineCap = 'round'; c.lineJoin = 'round'; c.beginPath(); c.moveTo(P[0][0], P[0][1]);
+  for (let i = 0; i < seg.length; i++) {
+    if (ac + seg[i] <= want) { c.lineTo(P[i + 1][0], P[i + 1][1]); ac += seg[i]; }
+    else { const u = (want - ac) / seg[i]; c.lineTo(lerp(P[i][0], P[i + 1][0], u), lerp(P[i][1], P[i + 1][1], u)); break; }
+  }
+  c.stroke(); c.restore();
+}
+function curve(p0, p1, p2, n) { const o = []; for (let i = 0; i <= n; i++) { const u = i / n; o.push([(1 - u) * (1 - u) * p0[0] + 2 * (1 - u) * u * p1[0] + u * u * p2[0], (1 - u) * (1 - u) * p0[1] + 2 * (1 - u) * u * p1[1] + u * u * p2[1]]); } return o; }
+function rrPts(x, y, w, h, r) {
+  const a = [], arc = (cx, cy, a0) => { for (let i = 0; i <= 4; i++) { const t = a0 + i * Math.PI / 8; a.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); } };
+  a.push([x + r, y]); a.push([x + w - r, y]); arc(x + w - r, y + r, -Math.PI / 2);
+  a.push([x + w, y + h - r]); arc(x + w - r, y + h - r, 0);
+  a.push([x + r, y + h]); arc(x + r, y + h - r, Math.PI / 2);
+  a.push([x, y + r]); arc(x + r, y + r, Math.PI); a.push([x + r + 2, y]);
+  return a;
+}
+// 형광펜: 글줄마다 왼쪽→오른쪽으로 훑는다(글씨 뒤에 먼저 그린다)
+function highlight(c, B, t, start, left) {
+  B.lines.forEach((ln, i) => {
+    const p = ease((t - start - i * .14) / .5); if (p <= 0) return;
+    const lx = left != null ? left : B.cx - B.lw[i] / 2, top = B.y + i * B.lhp, y0 = top + B.lhp * .22, y1 = top + B.lhp * .86, x0 = lx - 14, x1 = lx + B.lw[i] + 14, xe = lerp(x0, x1, p);
+    c.save(); c.fillStyle = HL; c.beginPath(); c.moveTo(x0 + 6, y0 + 4); c.lineTo(xe + 4, y0); c.lineTo(xe - 4, y1); c.lineTo(x0, y1 - 3); c.closePath(); c.fill(); c.restore();
+  });
+}
+
+// ---------- 글씨 쓰기 ----------
+// B: fit() 결과 + {cx,y}(가운데) 또는 o.left(왼쪽 정렬). p: 쓰기 진행 0~1. o.pencil: 연필(겹쳐 쓴 흑연 느낌). 읽을 글씨는 보고(rep)되어 readcheck가 본다.
+function put(c, B, p, color, o) {
+  o = o || {};
+  if (p <= 0) return;
+  const total = B.lw.reduce((a, b) => a + b, 0), reveal = clamp(p) * total;
+  const m = c.getTransform();
+  let cum = 0, x0box = 1e9, x1box = -1e9;
+  c.save(); c.font = fontStr(B.kind, B.size); c.textBaseline = 'middle'; c.fillStyle = color; c.strokeStyle = color; c.lineWidth = Math.max(1.1, B.size * (o.pencil ? .012 : .02)); c.lineJoin = 'round';
+  B.lines.forEach((ln, i) => {
+    const lw = B.lw[i], lx = o.left != null ? o.left : B.cx - lw / 2, top = B.y + i * B.lhp;
+    x0box = Math.min(x0box, lx); x1box = Math.max(x1box, lx + lw);
+    const rw = clamp((reveal - cum) / lw) * lw; cum += lw;
+    if (rw <= 0) return;
+    const slant = B.size * .22, full = rw >= lw - .01;
+    c.save(); c.beginPath();
+    if (full) c.rect(lx - 8, top - 4, lw + 16, B.lhp + 8);
+    else { c.moveTo(lx - 8, top - 4); c.lineTo(lx + rw + slant, top - 4); c.lineTo(lx + rw - slant, top + B.lhp + 4); c.lineTo(lx - 8, top + B.lhp + 4); c.closePath(); }
+    c.clip();
+    const ty = top + B.lhp / 2;
+    if (o.pencil) { c.globalAlpha = .55; c.fillText(ln, lx + .9, ty + .7); c.globalAlpha = .88; }
+    c.fillText(ln, lx, ty); c.strokeText(ln, lx, ty);
+    c.restore();
+  });
+  c.restore();
+  if (o.rep !== false) TX.push({ id: B.id, text: B.text, x0: m.a * x0box + m.e, x1: m.a * x1box + m.e, y0: m.d * B.y + m.f, y1: m.d * (B.y + B.h) + m.f });
+}
+
+// ---------- 레이아웃(폰트 로드 후 1회) ----------
+const YC = 890;
+function centerStack(items, y0, y1, maxW) {
+  const bl = LX.stack(items, y0, y1, maxW, 540), sh = Math.max(0, ((y1 - y0) - (bl.bottom - y0)) / 2);
+  bl.forEach(b => { b.y += sh; }); return bl;
+}
+function layout() {
+  const C = tl.C, L = {}, M = LCL.MIN, SF = LCL.SAFE;
+  STACK.tg = LANG === 'ja' ? 'Klee, "Hiragino Maru Gothic ProN", LCJP, LCKR, sans-serif' : LANG === 'zh' ? '"Hannotate SC", "Kaiti SC", LCSC, LCKR, sans-serif' : '"Bradley Hand", Noteworthy, LCKR, sans-serif';
+  LX = LCL.make(mctx, fontStr);
+  // 훅: 노트 제목(≥110px). 같은 줄바꿈 그대로 52px 제목으로 줄어 위에 남는다
+  let hb = LX.fit(C.hook, 'ko', { maxW: 900, maxLines: 3, s0: 150, s1: M.hook, lh: 1.22 });
+  if (hb.lines.length > 3 || hb.w > 901) hb = LX.fit(C.hook, 'ko', { maxW: 900, maxLines: 4, s0: M.hook, s1: 80, lh: 1.22 });
+  hb.id = 'hook'; hb.cx = 540; hb.y = YC - 24 - hb.h / 2;
+  const f = Math.min(1, M.title / hb.size), titleTop = 300;
+  L.hook = { B: hb, f, cy: hb.y + hb.h / 2, titleTop, uw: Math.min(900, hb.w + 24) };
+  const titleBottom = titleTop + f * (hb.h + 40);
+  // WRONG / RIGHT: 제목 아래 아이콘, 그 아래 본문을 남는 영역 가운데에
+  const iconCy = titleBottom + 78, y0 = iconCy + 80, y1 = 1450, mw = 900;
+  const ml = (txt, mwid) => LX.fit(txt, 'tg', { maxW: mwid, maxLines: 2, s0: 130, s1: M.body, lh: 1.22 }).lines.length <= 2 ? 2 : 3;
+  L.wrong = { cy: iconCy, items: centerStack([
+    { id: 'wrong', text: C.wrong, kind: 'tg', s0: 130, s1: M.body, maxLines: ml(C.wrong, mw), color: PENCIL, lh: 1.22 },
+    { id: 'wrongPh', text: C.wrongPh, kind: 'ko', s0: 66, s1: 40, maxLines: 2, color: PENCIL2, gap: 44, lh: 1.28 }], y0, y1, mw) };
+  L.right = { cy: iconCy, items: centerStack([
+    { id: 'right', text: C.right, kind: 'tg', s0: 130, s1: M.body, maxLines: ml(C.right, mw), color: BLUE, lh: 1.22 },
+    { id: 'rightPh', text: C.rightPh, kind: 'ko', s0: 62, s1: 40, maxLines: 2, color: PENCIL2, gap: 40, lh: 1.28 },
+    { id: 'roman', text: C.roman, kind: 'tg', s0: 54, s1: 36, maxLines: 2, color: PENCIL2, gap: 14, lh: 1.25 },
+    { id: 'rightKo', text: C.rightKo, kind: 'ko', s0: 68, s1: 44, maxLines: 3, color: INK, gap: 46, lh: 1.3 }], y0, y1, mw) };
+  // EXPLAIN: 여백 메모 + 화살표
+  if (C.explain) {
+    const b = LX.fit(C.explain, 'ko', { maxW: 740, maxLines: 5, s0: 100, s1: 60, lh: 1.38 });
+    b.id = 'explain'; b.cx = 540 + 20; b.y = YC - b.h / 2 + 20; L.explain = { B: b };
+  }
+  // DIALOGUE: 2단 노트(A: / B:). 안 맞으면 세로로 쌓는 공통 배치로 대체
+  L.dialogue = dlgLayout(C);
+  // VOCAB: 불릿 단어 목록
+  { const cards = C.vocab.map((v, i) => {
+      const w = LX.fit(v.word, 'tg', { maxW: 600, maxLines: 1, s0: 136, s1: 72, lh: 1.15 }); w.id = 'v' + i + 'w';
+      const ty = v.type ? LX.fit(v.type, 'ko', { maxW: 200, maxLines: 1, s0: 44, s1: 32, lh: 1.2 }) : null; if (ty) ty.id = 'v' + i + 't';
+      const m = v.meaning ? LX.fit(v.meaning, 'ko', { maxW: 800, maxLines: 2, s0: 66, s1: 44, lh: 1.28 }) : null; if (m) m.id = 'v' + i + 'm';
+      const p = v.phonetic ? LX.fit(v.phonetic, 'ko', { maxW: 800, maxLines: 1, s0: 54, s1: 38, lh: 1.25 }) : null; if (p) p.id = 'v' + i + 'p';
+      return { w, ty, m, p, h: w.h + 16 + (m ? m.h : 0) + (p ? p.h + 6 : 0) };
+    });
+    const GAPC = 100, tot = cards.reduce((s, c) => s + c.h, 0) + GAPC * (cards.length - 1);
+    let y = YC - tot / 2;
+    cards.forEach(k => { k.top = y; k.w.y = y; let yy = y + k.w.h + 16; if (k.ty) k.ty.y = y + (k.w.h - k.ty.h) / 2 + 4; if (k.m) { k.m.y = yy; yy += k.m.h; } if (k.p) k.p.y = yy + 6; k.div = y + k.h + GAPC / 2; y += k.h + GAPC; });
+    L.vocab = cards; }
+  // CTA: "복습" + 체크 / 문구 / 핸들
+  { const rv = LX.fit('복습', 'ko', { maxW: 400, maxLines: 1, s0: 124, s1: 80, lh: 1.2 }); rv.id = 'review';
+    const b = LX.fit(C.cta || C.handle, 'ko', { maxW: 900, maxLines: 4, s0: 104, s1: 60, lh: 1.3 }); b.id = 'cta'; b.cx = 540;
+    const h = LX.fit(C.handle, 'tg', { maxW: 900, maxLines: 1, s0: 96, s1: 48, lh: 1.2 }); h.id = 'handle'; h.cx = 540;
+    const gw = rv.w + 56 + 130, tot = rv.h + 64 + b.h + 96 + h.h; let y = YC - tot / 2;
+    rv.y = y; rv.cx = 540 - gw / 2 + rv.w / 2; b.y = y + rv.h + 64; h.y = b.y + b.h + 96;
+    L.cta = { rv, b, h, checkX: 540 - gw / 2 + rv.w + 56, checkCy: rv.y + rv.h / 2 }; }
+  LAY = L;
+}
+function dlgLayout(C) {
+  const turns = C.dialogue, n = turns.length, labels = ['A:', 'B:'];
+  const mkLab = (i, x, y) => { const B = LX.fit(labels[i % 2], 'tg', { maxW: 160, maxLines: 1, s0: 72, s1: 56, lh: 1.15 }); B.id = 'dl' + i; B.x = x; B.y = y; return B; };
+  const res = [];
+  if (n === 2) {
+    const colW = 436, xs = [SAFE.x0, SAFE.x1 - colW], PADL = 28, inner = colW - PADL - 4;
+    for (let k = 1; k >= .6; k -= .05) {
+      const blocks = turns.map(t => {
+        const a = LX.fit(t.line, 'tg', { maxW: inner, maxLines: 7, s0: 72 * k, s1: LCL.MIN.bubbleTarget, lh: 1.2 });
+        const b = t.ph ? LX.fit(t.ph, 'ko', { maxW: inner, maxLines: 4, s0: 48 * k, s1: LCL.MIN.bubbleSub, lh: 1.25 }) : null;
+        const c = t.ko ? LX.fit(t.ko, 'ko', { maxW: inner, maxLines: 4, s0: 50 * k, s1: LCL.MIN.bubbleSub, lh: 1.25 }) : null;
+        const parts = [a, b, c].filter(Boolean); return { a, b, c, h: parts.reduce((s, p) => s + p.h, 0) + (parts.length - 1) * 16 };
+      });
+      const mh = Math.max(...blocks.map(x => x.h)), LABH = 96;
+      if (mh + LABH <= 1030 || k <= .61) {
+        if (mh + LABH > 1060) break;                               // 하한에서도 안 맞으면 세로 쌓기로
+        const top = Math.max(SAFE.top + 10, YC - (mh + LABH) / 2 + 10);
+        blocks.forEach((bk, i) => {
+          const x = xs[i], lab = mkLab(i, x + 6, top), y = top + LABH;
+          let yy = y; [['a', 'l'], ['b', 'p'], ['c', 'k']].forEach(([key, s]) => { const p = bk[key]; if (!p) return; p.id = 'd' + i + s; p.left = x + PADL; p.y = yy; yy += p.h + 16; });
+          res.push({ x, y, w: colW, h: mh, a: bk.a, b: bk.b, c: bk.c, lab, bar: [x + 6, y - 4, y + bk.h + 4], col: true });
+        });
+        res.col = true; res.div = [540, top - 6, top + LABH + mh + 20]; return res;
+      }
+    }
+  }
+  const st = LX.dialogue(turns, { y0: 420, y1: 1440, gap: 120, maxInner: 780 });
+  st.forEach((r, i) => { const lab = mkLab(i, r.x + 6, r.y - 70); [['a', 'l'], ['b', 'p'], ['c', 'k']].forEach(([key, s]) => { const p = r[key]; if (p) p.left = r.x + 28; }); res.push({ x: r.x, y: r.y, w: r.w, h: r.h, a: r.a, b: r.b, c: r.c, lab, bar: [r.x + 6, r.y - 4, r.y + r.h + 4], col: false }); });
+  return res;
+}
+
+// ---------- 장면 그리기 ----------
+const tlWrite = tx => LC.writeDur(tx);
+function drawTitle(c, t, rep) {      // 노트 제목: 처음엔 화면 가득(쓰면서) → 위로 줄어들어 남는다. 두 줄 밑줄
+  const L = LAY.hook, B = L.B, hk = tl.by.hook, [m0, m1] = hk.cue.move, mv = ease((t - m0) / (m1 - m0));
+  const f = lerp(1, L.f, mv), ty = lerp(L.cy, L.titleTop + L.f * B.h / 2, mv);
+  c.save(); c.translate(540, ty); c.scale(f, f); c.translate(-540, -L.cy);
+  put(c, B, clamp((t + .3) / .9), INK, { t, rep });
+  const u0 = B.y + B.h + 6, hw = L.uw / 2;
+  poly(c, [[540 - hw, u0 + 8], [540 - hw * .3, u0 + 2], [540 + hw, u0 - 4]], prog(t, .7, .45), 8, RED, 11);
+  poly(c, [[540 - hw + 24, u0 + 30], [540 + hw * .1, u0 + 24], [540 + hw - 14, u0 + 20]], prog(t, 1.05, .45), 8, RED, 12);
+  c.restore();
+}
+function iconCross(c, cy, p) {
+  poly(c, [[488, cy - 52], [592, cy + 52]], prog(p, 0, .5), 14, RED, 3);
+  poly(c, [[592, cy - 52], [488, cy + 52]], prog(p, .45, .55), 14, RED, 4);
+}
+function iconCheck(c, cy, p) { poly(c, [[478, cy + 2], [524, cy + 52], [604, cy - 50]], prog(p, 0, 1), 15, BLUE, 5); }
+function drawWrong(c, t, sc) {
+  const cu = sc.cue, L = LAY.wrong, rep = t < sc.t1;
+  iconCross(c, L.cy, (t - cu.icon) / .45);
+  L.items.forEach(B => {
+    const isW = B.id === 'wrong';
+    put(c, B, prog(t, isW ? cu.text : cu.ph, tlWrite(B.text)), B.color, { t, rep, pencil: true });
+    if (isW && t > cu.strike) B.lines.forEach((ln, i) => {              // 빨간 펜으로 쭉 긋기(한 번 더 짧게 덧그음)
+      const lx = B.cx - B.lw[i] / 2, my = B.y + i * B.lhp + B.lhp * .52;
+      poly(c, [[lx - 20, my + 10], [lx + B.lw[i] * .5, my - 2], [lx + B.lw[i] + 20, my - 12]], prog(t, cu.strike + i * .15, .32), 12, RED, 20 + i, .94);
+      poly(c, [[lx + B.lw[i] + 10, my + 16], [lx + B.lw[i] * .45, my + 6], [lx + B.lw[i] * .12, my - 4]], prog(t, cu.strike + i * .15 + .3, .22), 8, RED, 28 + i, .8);
+    });
+  });
+}
+function drawRight(c, t, sc) {
+  const cu = sc.cue, L = LAY.right, rep = t < sc.t1, st = { right: cu.text, rightPh: cu.ph, roman: cu.roman, rightKo: cu.ko };
+  iconCheck(c, L.cy, (t - cu.icon) / .45);
+  const R = L.items.find(b => b.id === 'right'); if (R) highlight(c, R, t, cu.text + tlWrite(R.text) + .05);      // 글씨 뒤로 깔리는 형광펜
+  L.items.forEach(B => put(c, B, prog(t, st[B.id], tlWrite(B.text)), B.color, { t, rep, pencil: B.id === 'rightPh' || B.id === 'roman' }));
+}
+function drawExplain(c, t, sc) {
+  const cu = sc.cue, B = LAY.explain.B, rep = t < sc.t1, ex = B.cx - B.w / 2, ey = B.y, sx = SAFE.x0 + 44, sy = B.y - 92;
+  // 별표(빨간 펜) → 곡선 화살표 → 메모
+  const sp = prog(t, cu.box, .35), ar = 60;
+  poly(c, [[sx, sy - ar / 2], [sx, sy + ar / 2]], prog(sp, 0, .4), 8, RED, 41);
+  poly(c, [[sx - ar * .43, sy - ar * .25], [sx + ar * .43, sy + ar * .25]], prog(sp, .3, .4), 8, RED, 42);
+  poly(c, [[sx - ar * .43, sy + ar * .25], [sx + ar * .43, sy - ar * .25]], prog(sp, .6, .4), 8, RED, 43);
+  const ap = prog(t, cu.box + .25, .5), p0 = [sx + 54, sy + 6], p2 = [ex - 8, ey + B.lhp * .35], pc = [ex - 20, sy - 30];
+  const cv2 = curve(p0, pc, p2, 12); poly(c, cv2, ap, 8, RED, 44);
+  if (ap > .85) { const e = cv2[cv2.length - 1], q = cv2[cv2.length - 3], a = Math.atan2(e[1] - q[1], e[0] - q[0]);
+    poly(c, [[e[0] - 30 * Math.cos(a - .5), e[1] - 30 * Math.sin(a - .5)], e, [e[0] - 30 * Math.cos(a + .5), e[1] - 30 * Math.sin(a + .5)]], prog(ap, .85, .15), 8, RED, 45); }
+  poly(c, [[ex - 32, ey - 8], [ex - 48, ey - 4], [ex - 48, ey + B.h + 4], [ex - 32, ey + B.h + 8]], prog(t, cu.box + .1, .4), 5, PENCIL2, 46);      // 연필 대괄호
+  put(c, B, prog(t, cu.text, tlWrite(B.text)), INK, { t, rep });
+  const lastW = B.lw[B.lines.length - 1], ux = B.cx - lastW / 2, uy = B.y + B.h + 6;      // 끝줄 물결 밑줄(빨간 펜)
+  const wv = []; for (let i = 0; i <= 14; i++) wv.push([ux + lastW * i / 14, uy + (i % 2 ? 7 : -3)]);
+  poly(c, wv, prog(t, cu.text + tlWrite(B.text), .5), 6, RED, 47, .9);
+}
+function drawDialogue(c, t, sc) {
+  const rep = t < sc.t1, D = LAY.dialogue;
+  if (D.col) poly(c, [[D.div[0], D.div[1]], [D.div[0] + 2, D.div[2]]], prog(t, sc.t0, .6), 3, PENCIL2, 50, .75);      // 가운데 세로선
+  D.forEach((r, i) => {
+    const cu = sc.cue.turns[i]; if (!cu || t < cu.bubble) return;
+    const hl = i === tl.C.hl, col = i % 2 === 0 ? BLUE : RED;
+    poly(c, [[r.bar[0], r.bar[1]], [r.bar[0] + 1, r.bar[2]]], prog(t, cu.bubble, .4), 6, col, 60 + i);
+    put(c, r.lab, prog(t, cu.bubble + .05, .3), col, { t, rep, left: r.lab.x });
+    if (hl) highlight(c, r.a, t, cu.line + tlWrite(r.a.text) + .05, r.a.left);
+    put(c, r.a, prog(t, cu.line, tlWrite(r.a.text)), INK, { t, rep, left: r.a.left });
+    if (r.b) put(c, r.b, prog(t, cu.ph, tlWrite(r.b.text)), PENCIL2, { t, rep, left: r.b.left, pencil: true });
+    if (r.c) put(c, r.c, prog(t, cu.ko, tlWrite(r.c.text)), PENCIL, { t, rep, left: r.c.left, pencil: true });
+  });
+}
+function drawVocab(c, t, sc) {
+  const rep = t < sc.t1, XB = SAFE.x0 + 30, XW = SAFE.x0 + 84;
+  LAY.vocab.forEach((k, i) => {
+    const cu = sc.cue.cards[i]; if (t < cu.word) return;
+    const bp = ease(prog(t, cu.word, .3)), cy = k.w.y + k.w.h / 2;
+    c.save(); c.fillStyle = BLUE; c.beginPath(); c.arc(XB, cy, 15 * bp, 0, 7); c.fill(); c.restore();      // 불릿
+    put(c, k.w, prog(t, cu.word, tlWrite(k.w.text)), BLUE, { t, rep, left: XW });
+    if (k.ty) {
+      const tw = k.ty.lw[0], px = SAFE.x1 - tw - 44, ty0 = k.ty.y - 4;
+      poly(c, rrPts(px - 20, ty0, tw + 40, k.ty.h + 8, (k.ty.h + 8) / 2), prog(t, cu.type, .4), 4, PENCIL2, 70 + i);
+      put(c, k.ty, prog(t, cu.type + .1, tlWrite(k.ty.text)), PENCIL, { t, rep, left: px, pencil: true });
+    }
+    if (k.m) put(c, k.m, prog(t, cu.meaning, tlWrite(k.m.text)), INK, { t, rep, left: XW });
+    if (k.p) put(c, k.p, prog(t, cu.ph, tlWrite(k.p.text)), PENCIL2, { t, rep, left: XW, pencil: true });
+    if (i < LAY.vocab.length - 1) poly(c, [[SAFE.x0 + 10, k.div + 3], [SAFE.x1 - 10, k.div - 3]], prog(t, cu.word + .2, .5), 4, PENCIL2, 90 + i, .6);
+  });
+}
+function drawCta(c, t, sc) {
+  const cu = sc.cue, L = LAY.cta, rep = t < sc.t1;
+  put(c, L.rv, prog(t, cu.icon, .5), BLUE, { t, rep });
+  poly(c, [[L.checkX, L.checkCy + 6], [L.checkX + 40, L.checkCy + 54], [L.checkX + 128, L.checkCy - 56]], prog(t, cu.icon + .35, .55), 17, RED, 8);      // 체크는 획으로
+  put(c, L.b, prog(t, cu.text, tlWrite(L.b.text)), INK, { t, rep });
+  const ye = L.b.y + L.b.h + 24, we = cu.text + tlWrite(L.b.text);
+  put(c, L.h, prog(t, cu.handle, tlWrite(L.h.text)), BLUE, { t, rep });
+  const hw = L.h.w / 2 + 10, hy = L.h.y + L.h.h + 4, he = cu.handle + tlWrite(L.h.text);
+  poly(c, [[540 - hw, hy + 4], [540, hy], [540 + hw, hy - 4]], prog(t, he, .35), 6, RED, 15);
+  poly(c, [[540 - hw + 20, hy + 20], [540 + 10, hy + 16], [540 + hw - 10, hy + 12]], prog(t, he + .25, .35), 6, RED, 16);
+}
+const DRAW = { hook: () => {}, wrong: drawWrong, right: drawRight, explain: drawExplain, dialogue: drawDialogue, vocab: drawVocab, cta: drawCta };
+
+// ---------- 합성 ----------
+function paint(g, si, t, withTitle, repTitle) {
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, W, H);
+  g.drawImage(paperC, 0, 0);
+  const sc = tl.scenes[si]; DRAW[sc.id](g, t, sc);
+  if (withTitle) drawTitle(g, t, repTitle);
+}
+// 페이지 넘김: 옛 페이지를 스파인 기준으로 접으며(가로 폭 1→0) 살짝 들린 원근, 그림자는 아래 새 페이지 위로 드리운다.
+function flipPage(g, src, p) {
+  const e = ease(p), sx = 1 - e, lift = Math.sin(Math.PI * p), edge = SPINE + (W - SPINE) * sx;
+  const sh = g.createLinearGradient(edge, 0, edge + 190, 0); sh.addColorStop(0, `rgba(30,20,8,${.34 * (1 - e * .7)})`); sh.addColorStop(1, 'rgba(30,20,8,0)');
+  g.fillStyle = sh; g.fillRect(edge, PG.y, 190, PG.h);
+  const step = 6;
+  for (let x = 0; x < W; x += step) {
+    const far = Math.max(0, (x - SPINE) / (W - SPINE)), dx = x < SPINE ? x : SPINE + (x - SPINE) * sx, dw = (x < SPINE ? step : step * sx) + .8;
+    const k = 1 + .05 * lift * far, dh = H * k, dy = (H - dh) / 2 - 12 * lift * far;
+    g.drawImage(src, x, 0, step, H, dx, dy, dw, dh);
+  }
+  const dg = g.createLinearGradient(SPINE, 0, edge, 0); dg.addColorStop(0, 'rgba(40,28,10,0)'); dg.addColorStop(1, `rgba(40,28,10,${.22 * lift + .06 * e})`);
+  g.fillStyle = dg; g.fillRect(SPINE, PG.y, Math.max(0, edge - SPINE), PG.h);
+}
+function render(t) {
+  TX = [];
+  if (!tl) return;
+  const sc = tl.scenes, hk = tl.by.hook;
+  let i = 0; for (let k = 0; k < sc.length; k++) if (sc[k].t0 <= t) i = k;
+  const prev = i > 0 ? sc[i - 1] : null;
+  const wiping = !!(prev && prev.wipe && t >= prev.t1 && t < prev.t1 + prev.wipe);
+  const titleOn = t < hk.titleUntil;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.drawImage(deskC, 0, 0);
+  paint(pa, i, t, titleOn, titleOn);
+  ctx.drawImage(PA, 0, 0);
+  if (wiping) {
+    const oldTitle = prev.id === 'wrong' || prev.id === 'right';       // 옛 페이지에도 제목이 있었다(보고는 새 페이지 쪽만)
+    paint(pb, i - 1, t, oldTitle && (t < hk.titleUntil || prev.id === 'right'), false);
+    flipPage(ctx, PB, (t - prev.t1) / prev.wipe);
+  }
+}
+
+window.DUR = 1; window.EV = [];
+window.render = render;
+window.TEXTS = () => LC.texts(TX);
+(async function init() {
+  try {
+    const { input, dur, opts } = await LC.load();
+    LANG = input.lang;
+    tl = LC.buildAuto(input, dur, opts);
+    window.DUR = tl.DUR; window.EV = tl.EV;
+    const sample = [tl.C.hook, tl.C.wrong, tl.C.right, tl.C.explain, tl.C.cta, tl.C.rightKo, tl.C.rightPh, tl.C.roman, ...tl.C.vocab.flatMap(v => [v.word, v.meaning, v.phonetic, v.type]),
+      ...tl.C.dialogue.flatMap(d => [d.line, d.ph, d.ko]), '@langcard.studio 복습 A: B: 0123456789'].join(' ');
+    await Promise.all(['LCKR', 'LCJP', 'LCSC'].map(f => document.fonts.load(`700 40px ${f}`, sample)));
+    await document.fonts.ready;
+    deskC = makeDesk(); paperC = makePaper();
+    layout();
+    window.READY = true;
+  } catch (e) { console.error('init failed', e); throw e; }
+})();
+</script></body></html>

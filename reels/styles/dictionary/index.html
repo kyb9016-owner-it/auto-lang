@@ -1,0 +1,317 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>LangCard - dictionary</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+@font-face{font-family:"LCKR";src:url("fonts/NotoSansKR-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCJP";src:url("fonts/NotoSansJP-Bold.ttf");font-weight:700;font-display:block}
+@font-face{font-family:"LCSC";src:url("fonts/NotoSansSC-Bold.ttf");font-weight:700;font-display:block}
+html,body{margin:0;padding:0;background:#f4ecd8;overflow:hidden}
+canvas{display:block}
+</style></head>
+<body><canvas id="c"></canvas>
+<script src="common/timeline.js"></script>
+<script src="common/layout.js"></script>
+<script>
+// ===== LangCard / Dictionary 스타일 — 1080x1920, 결정적 render(t) =====
+// 사전·에디토리얼 페이지: 따뜻한 아이보리 종이, 먹색 잉크, 포인트색 하나(옥스블러드), 가는 헤어라인, 작은 대문자 러닝 헤더+쪽 번호.
+// 훅=표제어(큰 세리프+헤어라인, 이후 작은 표제어로 위에 남음) · WRONG="틀린 용례" 줄+가는 취소선 · RIGHT=표제어·발음·"1." 뜻 ·
+// EXPLAIN="용법 NOTE" 박스 · DIALOGUE=예문 ①② · VOCAB=품사 태그 하위 표제어 2개 · CTA=판권(colophon). 움직임은 글자 페이드+몇 px 올라옴, 선은 좌→우로 그려짐, 장면 전환은 쪽 넘김 같은 부드러운 교차.
+// 외부 이미지·영상·음원 0 — 전부 코드로 그린다.
+const W = 1080, H = 1920, FPS = 24;
+const SAFE = LCL.SAFE;
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const ctx = cv.getContext('2d');
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+
+const PAPER = '#f4ecd8', INK = '#1f1b17', ACC = '#7a1f2b', GREY = '#6f665a', RULE = 'rgba(31,27,23,.55)';
+const XL = 110, XR = 970, WD = XR - XL;
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const sm = x => { x = clamp(x); return x * x * (3 - 2 * x); };
+const ease = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const prog = (t, a, d) => clamp((t - a) / d);
+
+let tl = null, LAY = {}, TX = [], LANG = 'en', LX = null, bgC = null;
+
+// ---------- 글꼴 ----------
+// ko=한글 작은 글씨(산스 Bold) · kos=한글 세리프 · kosI=한글 세리프 기울임 · lat/latI=라틴 세리프(IM Fell) · tg=목표 언어
+const FAM = {
+  ko: { w: 700, f: 'LCKR, LCJP, LCSC, sans-serif' },
+  kos: { w: 400, f: '"AppleMyungjo", "Noto Serif CJK KR", LCKR, serif', thick: true },
+  kosI: { w: 400, i: true, f: '"AppleMyungjo", "Noto Serif CJK KR", LCKR, serif', thick: true },
+  lat: { w: 400, f: '"IM Fell English", Georgia, "Times New Roman", serif', thick: true },
+  latI: { w: 400, i: true, f: '"IM Fell English", Georgia, "Times New Roman", serif', thick: true },
+  tgcjk: { w: 700, f: '' },
+  tg: null,
+};
+const fontStr = (kind, size) => { const k = FAM[kind]; return `${k.i ? 'italic ' : ''}${k.w} ${size}px ${k.f}`; };
+const tgKey = () => (LANG === 'en' ? 'lat' : 'tgcjk');
+
+// ---------- 선 ----------
+function hl(c, x0, x1, y, p, color, w, a) {      // 왼쪽에서 오른쪽으로 그려지는 가는 선
+  if (p <= 0) return; c.save(); c.globalAlpha *= (a == null ? 1 : a); c.strokeStyle = color; c.lineWidth = w || 2; c.lineCap = 'butt';
+  c.beginPath(); c.moveTo(x0, y); c.lineTo(lerp(x0, x1, clamp(p)), y); c.stroke(); c.restore();
+}
+
+// ---------- 글씨 ----------
+// B: fit() 결과 + y. o.left(왼쪽 정렬) 없으면 B.cx 가운데. p: 0~1(페이드), o.rise: 올라오는 px. 읽을 글씨는 TX에 보고.
+function put(c, B, p, color, o) {
+  o = o || {};
+  if (p <= 0) return;
+  const sp = o.sp || 0, a = sm(p), K = FAM[B.kind === 'tg' ? tgKey() : B.kind];
+  const m = c.getTransform(); let x0box = 1e9, x1box = -1e9;
+  c.save();
+  c.translate(0, (1 - a) * (o.rise == null ? 10 : o.rise));
+  c.font = fontStr(B.kind, B.size); c.letterSpacing = sp + 'px'; c.textBaseline = 'middle'; c.textAlign = 'left';
+  c.fillStyle = color; c.strokeStyle = color; c.lineJoin = 'round'; c.lineWidth = Math.max(1, B.size * .014);
+  c.globalAlpha *= (o.alpha == null ? 1 : o.alpha) * a;
+  B.lines.forEach((ln, i) => {
+    const lw = B.lw[i] + sp * [...ln].length, lx = o.left != null ? o.left : B.cx - lw / 2, ty = B.y + i * B.lhp + B.lhp / 2;
+    x0box = Math.min(x0box, lx); x1box = Math.max(x1box, lx + lw);
+    c.fillText(ln, lx, ty); if (K.thick) c.strokeText(ln, lx, ty);
+  });
+  c.restore();
+  if (o.rep !== false) TX.push({ id: B.id, text: B.text, x0: m.a * x0box + m.e, x1: m.a * x1box + m.e, y0: m.d * B.y + m.f, y1: m.d * (B.y + B.h) + m.f });
+}
+
+// 소제목 줄: [아이콘] 라벨 + 헤어라인. 라벨은 읽을 글씨(보고)
+function label(c, t, sc, st, y, text, icon) {
+  const a = sm(prog(t, st, .4)); if (a <= 0) return;
+  const SZ = 38, ix = XL + 6, tx = icon ? XL + 52 : XL;
+  c.save(); c.translate(0, (1 - a) * 8); c.globalAlpha *= a;
+  c.strokeStyle = ACC; c.lineWidth = 5; c.lineCap = 'round'; c.lineJoin = 'round';
+  if (icon === 'cross') { c.beginPath(); c.moveTo(ix + 2, y - 13); c.lineTo(ix + 28, y + 13); c.moveTo(ix + 28, y - 13); c.lineTo(ix + 2, y + 13); c.stroke(); }
+  if (icon === 'check') { c.beginPath(); c.moveTo(ix, y); c.lineTo(ix + 11, y + 12); c.lineTo(ix + 30, y - 14); c.stroke(); }
+  c.font = fontStr('ko', SZ); c.letterSpacing = '3px'; c.textBaseline = 'middle'; c.textAlign = 'left'; c.fillStyle = ACC; c.fillText(text, tx, y);
+  const w = c.measureText(text).width, m = c.getTransform();
+  c.restore();
+  hl(c, XL, XR, y + 34, ease(prog(t, st + .05, .7)), RULE, 1.5, a);
+  if (t < sc.t1) TX.push({ id: 'lab-' + sc.id, text, x0: m.a * tx + m.e, x1: m.a * (tx + w) + m.e, y0: m.d * (y - SZ * .6) + m.f, y1: m.d * (y + SZ * .6) + m.f });
+}
+
+// ---------- 레이아웃(폰트 로드 후 1회) ----------
+const YC = 890;
+function centerStack(items, y0, y1, maxW, cx) {
+  const bl = LX.stack(items, y0, y1, maxW, cx == null ? 540 : cx), sh = Math.max(0, ((y1 - y0) - (bl.bottom - y0)) / 2);
+  bl.forEach(b => { b.y += sh; }); bl.top = bl[0].y; bl.bot = bl.bottom + sh; return bl;
+}
+function layout() {
+  const C = tl.C, M = LCL.MIN, L = {};
+  FAM.tgcjk.f = LANG === 'ja' ? '"Hiragino Mincho ProN", "YuMincho", "IM Fell English", LCJP, LCKR, serif' : '"Songti SC", "STSong", "IM Fell English", LCSC, LCKR, serif';
+  FAM.tgcjk.thick = false;
+  FAM.tg = LANG === 'en' ? FAM.lat : FAM.tgcjk;
+  LX = LCL.make(ctx, fontStr);
+  // 훅 = 표제어(≥110px). 같은 줄바꿈 그대로 52px 제목이 되어 위에 남는다
+  const hb = LX.fit(C.hook, 'kos', { maxW: 840, maxLines: 4, s0: 150, s1: M.hook, lh: 1.26 });
+  hb.id = 'hook'; hb.y = YC - 20 - hb.h / 2;
+  const f = Math.min(1, M.title / hb.size), titleTop = 318;
+  L.hook = { B: hb, f, cy: hb.y + hb.h / 2, titleTop, ruleY: hb.y + hb.h + 46, bottom: titleTop + f * (hb.h + 46) };
+  const y0 = L.hook.bottom + 50, y1 = 1420;
+  const ml = (txt, mw) => LX.fit(txt, 'tg', { maxW: mw, maxLines: 2, s0: 120, s1: M.body, lh: 1.24 }).lines.length <= 2 ? 2 : 3;
+  // WRONG: "틀린 용례" 줄 + 취소선 그어지는 오답
+  { const it = centerStack([
+      { id: 'wrong', text: C.wrong, kind: 'tg', s0: 116, s1: M.body, maxLines: ml(C.wrong, WD), lh: 1.24 },
+      { id: 'wrongPh', text: C.wrongPh, kind: 'kosI', s0: 58, s1: 40, maxLines: 2, gap: 40, lh: 1.3 }], y0 + 110, y1, WD, XL);
+    L.wrong = { items: it, labelY: it.top - 62 }; }
+  // RIGHT: 표제어 · 발음 · "1." 뜻
+  { const NUM = 84;
+    const it = centerStack([
+      { id: 'right', text: C.right, kind: 'tg', s0: 120, s1: M.body, maxLines: ml(C.right, WD), lh: 1.24 },
+      { id: 'rightPh', text: C.rightPh, kind: 'kosI', s0: 56, s1: 40, maxLines: 2, gap: 40, lh: 1.3 },
+      { id: 'roman', text: C.roman, kind: 'latI', s0: 54, s1: 36, maxLines: 2, gap: 10, lh: 1.25 },
+      { id: 'rightKo', text: C.rightKo, kind: 'kos', s0: 70, s1: 46, maxLines: 3, gap: 78, lh: 1.32, maxW: WD - NUM }], y0 + 110, y1, WD, XL);
+    L.right = { items: it, labelY: it.top - 62, NUM }; }
+  // EXPLAIN: "용법 NOTE" 박스
+  if (C.explain) {
+    const b = LX.fit(C.explain, 'kos', { maxW: 740, maxLines: 5, s0: 90, s1: 60, lh: 1.4 }); b.id = 'explain';
+    const LABH = 40, GAP = 54, PAD = 64, h = PAD + LABH + GAP + b.h + PAD, top = YC - h / 2;
+    b.y = top + PAD + LABH + GAP; L.explain = { B: b, box: [90, top, 900, h], labY: top + PAD + LABH / 2 };
+  }
+  // DIALOGUE: 예문 ①② (공통 배치 계산 재사용, 모두 왼쪽 정렬)
+  L.dialogue = LX.dialogue(C.dialogue, { y0: 470, y1: 1400, gap: 70, maxInner: 740 });
+  L.dialogue.forEach((r, i) => { [r.a, r.b, r.c].forEach((p, k) => { if (p) p.color = (k === 0) ? (i === C.hl ? ACC : INK) : GREY; }); });
+  L.dlTop = L.dialogue.length ? L.dialogue[0].y - 74 : 400;
+  // VOCAB: 품사 태그 하위 표제어 2개
+  { const cards = C.vocab.map((v, i) => {
+      const w = LX.fit(v.word, 'tg', { maxW: 560, maxLines: 1, s0: 120, s1: 72, lh: 1.15 }); w.id = 'v' + i + 'w';
+      const ty = v.type ? LX.fit(v.type, 'ko', { maxW: 220, maxLines: 1, s0: 36, s1: 32, lh: 1.2 }) : null; if (ty) ty.id = 'v' + i + 't';
+      const m = v.meaning ? LX.fit(v.meaning, 'kos', { maxW: 840, maxLines: 2, s0: 62, s1: 44, lh: 1.3 }) : null; if (m) m.id = 'v' + i + 'm';
+      const p = v.phonetic ? LX.fit(v.phonetic, 'kosI', { maxW: 840, maxLines: 1, s0: 50, s1: 38, lh: 1.25 }) : null; if (p) p.id = 'v' + i + 'p';
+      return { w, ty, m, p, h: w.h + 12 + (m ? m.h : 0) + (p ? p.h + 4 : 0) };
+    });
+    const GAPC = 100, tot = cards.reduce((s, c) => s + c.h, 0) + GAPC * (cards.length - 1);
+    let y = Math.max(480, 900 - tot / 2);
+    cards.forEach(k => { k.top = y; k.w.y = y; let yy = y + k.w.h + 12; if (k.ty) k.ty.y = y + (k.w.h - k.ty.h) / 2 + 4; if (k.m) { k.m.y = yy; yy += k.m.h; } if (k.p) k.p.y = yy + 4; k.div = y + k.h + GAPC / 2; y += k.h + GAPC; });
+    L.vocab = cards; L.vocabLabY = (cards.length ? cards[0].top : 500) - 80; }
+  // CTA: 판권(colophon)
+  { const b = LX.fit(C.cta || C.handle, 'kos', { maxW: 820, maxLines: 4, s0: 96, s1: 60, lh: 1.34 }); b.id = 'cta'; b.cx = 540;
+    const h = LX.fit(C.handle, 'latI', { maxW: 820, maxLines: 1, s0: 80, s1: 48, lh: 1.2 }); h.id = 'handle'; h.cx = 540;
+    const tot = b.h + 150 + h.h; let y = YC - tot / 2; b.y = y; h.y = y + b.h + 150; L.cta = { b, h, ruleY: y + b.h + 75, colY: y - 90 }; }
+  LAY = L;
+}
+
+// ---------- 장면 그리기 ----------
+const rpt = (t, sc) => t < sc.t1;
+function drawHook(c, t, alpha) {
+  const L = LAY.hook, B = L.B, hk = tl.by.hook, [m0, m1] = hk.cue.move, mv = ease((t - m0) / (m1 - m0));
+  const f = lerp(1, L.f, mv), ty = lerp(L.cy, L.titleTop + L.f * B.h / 2, mv);
+  const fa = .35 + .65 * sm(t / .6);
+  c.save(); c.globalAlpha *= alpha * fa;
+  c.translate(XL, ty); c.scale(f, f); c.translate(-XL, -L.cy);
+  hl(c, XL, XL + Math.max(B.w, 300), L.ruleY, ease(prog(t, .15, .9)), INK, 2.5, .8);
+  hl(c, XL, XL + 90, L.ruleY + 8, ease(prog(t, .4, .8)), ACC, 4, 1);
+  put(c, B, 1, INK, { left: XL, rise: 0, rep: t < hk.titleUntil });
+  c.restore();
+}
+function drawWrong(c, t, sc) {
+  const cu = sc.cue, L = LAY.wrong, rep = rpt(t, sc);
+  label(c, t, sc, cu.icon, L.labelY, '틀린 용례', 'cross');
+  L.items.forEach(B => {
+    const isW = B.id === 'wrong', st = isW ? cu.text : cu.ph, p = prog(t, st, Math.max(.45, LC.writeDur(B.text) * .7));
+    const grey = isW ? prog(t, cu.strike, .5) : 0;
+    put(c, B, p, isW ? (grey > .5 ? '#6a6055' : INK) : GREY, { left: XL, rep });
+    if (isW && t > cu.strike) B.lines.forEach((ln, i) => {
+      const my = B.y + i * B.lhp + B.lhp * .54;
+      hl(c, XL - 12, XL + B.lw[i] + 14, my, ease(prog(t, cu.strike + i * .1, .4)), ACC, 4);
+    });
+  });
+}
+function drawRight(c, t, sc) {
+  const cu = sc.cue, L = LAY.right, rep = rpt(t, sc), st = { right: cu.text, rightPh: cu.ph, roman: cu.roman, rightKo: cu.ko };
+  label(c, t, sc, cu.icon, L.labelY, '올바른 용례', 'check');
+  L.items.forEach(B => {
+    const p = prog(t, st[B.id], Math.max(.45, LC.writeDur(B.text) * .7));
+    if (B.id === 'rightKo') {
+      const R = L.items.find(x => x.id === 'rightKo');
+      hl(c, XL, XR, R.y - 40, ease(prog(t, cu.ko, .6)), RULE, 1.5, .8);
+      if (p > 0) { c.save(); c.globalAlpha *= sm(p); c.translate(0, (1 - sm(p)) * 10); c.font = fontStr('lat', 76); c.fillStyle = ACC; c.strokeStyle = ACC; c.lineWidth = 1.2; c.textBaseline = 'middle'; c.textAlign = 'left';
+        const y = R.y + R.lhp / 2; c.fillText('1.', XL, y); c.strokeText('1.', XL, y); c.restore(); }
+      put(c, B, p, INK, { left: XL + L.NUM, rep });
+    } else put(c, B, p, B.id === 'right' ? INK : GREY, { left: XL, rep });
+  });
+  const R = L.items[0]; if (R) hl(c, XL, XL + 90, R.y + R.h + 12, ease(prog(t, cu.text + .4, .6)), ACC, 4, .9);
+}
+function drawExplain(c, t, sc) {
+  const cu = sc.cue, L = LAY.explain, B = L.B, rep = rpt(t, sc), [x, y, w, h] = L.box, a = sm(prog(t, cu.box, .35));
+  c.save(); c.globalAlpha *= a; c.fillStyle = 'rgba(31,27,23,.035)'; c.fillRect(x, y, w, h); c.restore();
+  c.save(); c.strokeStyle = INK; c.lineWidth = 2; c.globalAlpha *= .75; c.setLineDash([2 * (w + h) * ease(prog(t, cu.box, .8)), 4 * (w + h)]); c.strokeRect(x, y, w, h); c.restore();
+  // 라벨 "용법 NOTE"
+  const la = sm(prog(t, cu.box + .15, .4));
+  if (la > 0) { c.save(); c.globalAlpha *= la; c.translate(0, (1 - la) * 8); const m = c.getTransform();
+    c.font = fontStr('ko', 38); c.letterSpacing = '4px'; c.textBaseline = 'middle'; c.textAlign = 'left'; c.fillStyle = ACC;
+    const s = '용법 NOTE', lw = c.measureText(s).width; c.fillText(s, 150, L.labY); c.restore();
+    hl(c, 150, 150 + lw, L.labY + 34, ease(prog(t, cu.box + .3, .5)), ACC, 2, .8);
+    if (rep) TX.push({ id: 'lab-explain', text: s, x0: m.a * 150 + m.e, x1: m.a * (150 + lw) + m.e, y0: m.d * (L.labY - 24) + m.f, y1: m.d * (L.labY + 24) + m.f }); }
+  put(c, B, prog(t, cu.text, Math.max(.5, LC.writeDur(B.text) * .7)), INK, { left: 150, rep });
+}
+function drawDialogue(c, t, sc) {
+  const rep = rpt(t, sc), D = LAY.dialogue, cu0 = sc.cue.turns[0];
+  label(c, t, sc, cu0.bubble - .1, LAY.dlTop, '예문', null);
+  D.forEach((r, i) => {
+    const cu = sc.cue.turns[i]; if (t < cu.bubble) return;
+    const a = sm(prog(t, cu.bubble, .4)), cy = r.a.y + r.a.lhp / 2;
+    c.save(); c.globalAlpha *= a; c.translate(0, (1 - a) * 8);       // ①② 번호(원+숫자)
+    c.strokeStyle = ACC; c.lineWidth = 2.5; c.beginPath(); c.arc(XL + 28, cy, 28, 0, 7); c.stroke();
+    c.font = fontStr('lat', 36); c.fillStyle = ACC; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(i + 1), XL + 28, cy + 2);
+    c.restore();
+    [[r.a, cu.line], [r.b, cu.ph], [r.c, cu.ko]].forEach(([B, s]) => B && put(c, B, prog(t, s, Math.max(.45, LC.writeDur(B.text) * .7)), B.color, { left: XL + 84, rep }));
+    if (i < D.length - 1) hl(c, XL, XR, r.y + r.h + 36, ease(prog(t, cu.ko, .7)), RULE, 1.2, .6);
+  });
+}
+function drawVocab(c, t, sc) {
+  const rep = rpt(t, sc);
+  label(c, t, sc, sc.t0, LAY.vocabLabY, '관련 어휘', null);
+  LAY.vocab.forEach((k, i) => {
+    const cu = sc.cue.cards[i]; if (t < cu.word) return;
+    put(c, k.w, prog(t, cu.word, Math.max(.45, LC.writeDur(k.w.text) * .7)), INK, { left: XL, rep });
+    if (k.ty) { const a = sm(prog(t, cu.type, .4)), tx = XL + k.w.w + 28, ty = k.ty.y, tw = k.ty.w + 36, th = k.ty.h + 4;   // 품사 태그(얇은 테두리)
+      c.save(); c.globalAlpha *= a; c.strokeStyle = ACC; c.lineWidth = 2; c.strokeRect(tx, ty - 2, tw, th); c.restore();
+      put(c, k.ty, prog(t, cu.type, .4), ACC, { left: tx + 18, rep, sp: 2 }); }
+    if (k.m) put(c, k.m, prog(t, cu.meaning, Math.max(.45, LC.writeDur(k.m.text) * .7)), INK, { left: XL, rep });
+    if (k.p) put(c, k.p, prog(t, cu.ph, Math.max(.45, LC.writeDur(k.p.text) * .7)), GREY, { left: XL, rep });
+    if (i < LAY.vocab.length - 1) hl(c, XL, XR, k.div, ease(prog(t, cu.word + .25, .7)), RULE, 1.2, .6);
+  });
+}
+function drawCta(c, t, sc) {
+  const cu = sc.cue, L = LAY.cta, rep = rpt(t, sc);
+  const a = sm(prog(t, cu.icon, .4));
+  if (a > 0) { c.save(); c.globalAlpha *= a; c.font = fontStr('ko', 32); c.letterSpacing = '8px'; c.fillStyle = ACC; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('COLOPHON', 540 + 4, L.colY); c.restore(); }
+  put(c, L.b, prog(t, cu.text, .7), INK, { rep });
+  const rp = ease(prog(t, cu.text + .3, .7));       // 가운데 마름모 장식과 양쪽 선
+  hl(c, 540, 540 - 260, L.ruleY, rp, RULE, 1.5, .9); hl(c, 540, 540 + 260, L.ruleY, rp, RULE, 1.5, .9);
+  if (rp > .1) { c.save(); c.globalAlpha *= rp; c.translate(540, L.ruleY); c.rotate(Math.PI / 4); c.fillStyle = ACC; c.fillRect(-8, -8, 16, 16); c.restore(); }
+  put(c, L.h, prog(t, cu.handle, .8), ACC, { rep });
+}
+const DRAW = { hook: () => {}, wrong: drawWrong, right: drawRight, explain: drawExplain, dialogue: drawDialogue, vocab: drawVocab, cta: drawCta };
+
+// ---------- 정적 레이어(종이·프레임·러닝 헤더) ----------
+function makeBg() {
+  const c = mk(W, H), g = c.getContext('2d');
+  const gr = g.createRadialGradient(540, 900, 200, 540, 960, 1300); gr.addColorStop(0, '#f7f0de'); gr.addColorStop(.6, '#f2e9d3'); gr.addColorStop(1, '#e3d6b8');
+  g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  const r = rng(7);                                                  // 아주 옅은 종이 섬유(정적이라 인코딩 비용 거의 없음)
+  g.lineWidth = 1;
+  for (let i = 0; i < 1400; i++) { const x = r() * W, y = r() * H, l = 6 + r() * 22, a = r() * 6.28; g.strokeStyle = `rgba(${r() < .5 ? '120,90,50' : '255,255,245'},${.018 + .03 * r()})`; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
+  for (let i = 0; i < 24; i++) { g.fillStyle = `rgba(150,110,60,${.008 + .01 * r()})`; g.beginPath(); g.ellipse(r() * W, r() * H, 80 + r() * 240, 60 + r() * 200, r() * 3, 0, 7); g.fill(); }
+  // 이중 헤어라인 프레임
+  g.strokeStyle = 'rgba(31,27,23,.5)'; g.lineWidth = 2; g.strokeRect(56, 150, W - 112, H - 300);
+  g.strokeStyle = 'rgba(31,27,23,.28)'; g.lineWidth = 1; g.strokeRect(68, 162, W - 136, H - 324);
+  // 러닝 헤더(장식): 작은 대문자 + 헤어라인
+  g.fillStyle = INK; g.font = '400 30px "IM Fell English", Georgia, serif'; g.textBaseline = 'middle';
+  g.letterSpacing = '7px'; g.fillText('LANGCARD DICTIONARY · ' + LANG.toUpperCase(), 100, 208);
+  g.strokeStyle = 'rgba(31,27,23,.45)'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(100, 242); g.lineTo(W - 100, 242); g.stroke();
+  g.beginPath(); g.moveTo(100, H - 242); g.lineTo(W - 100, H - 242); g.stroke();
+  return c;
+}
+function pageNo(c, si, a) {                                          // 오른쪽 위 모서리 쪽 번호(장식)
+  c.save(); c.globalAlpha *= a; c.font = 'italic 400 34px "IM Fell English", Georgia, serif'; c.fillStyle = INK; c.textBaseline = 'middle'; c.textAlign = 'right'; c.letterSpacing = '2px';
+  c.fillText(String(84 + si * 2), W - 100, 208); c.restore();
+}
+
+// ---------- 합성 ----------
+function render(t) {
+  TX = [];
+  if (!tl) return;
+  const sc = tl.scenes, DURs = tl.DUR;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.letterSpacing = '0px'; ctx.shadowColor = 'transparent';
+  ctx.drawImage(bgC, 0, 0);
+  let i = 0; for (let k = 0; k < sc.length; k++) if (sc[k].t0 <= t) i = k;
+  const prev = i > 0 ? sc[i - 1] : null, hk = tl.by.hook, rt = tl.by.right;
+  const wiping = !!(prev && prev.wipe > 0 && t >= prev.t1 && t < prev.t1 + prev.wipe), q = wiping ? (t - prev.t1) / prev.wipe : 1;
+  const aOut = wiping ? 1 - sm(q / .75) : 0, aIn = wiping ? sm((q + .1) / .8) : 1;
+  const layer = (si, a, dy) => { ctx.save(); ctx.translate(0, dy); ctx.globalAlpha = a; DRAW[sc[si].id](ctx, t, sc[si]); pageNo(ctx, si, 1); ctx.restore(); };
+  if (wiping) { layer(i - 1, aOut, -16 * sm(q)); layer(i, aIn, 16 * (1 - sm(q))); } else layer(i, 1, 0);
+  // 훅(표제어)은 RIGHT가 끝날 때까지 작은 제목으로 남는다
+  const tEnd = hk.titleUntil, tw = rt && rt.wipe ? rt.wipe : .4;
+  if (t < tEnd + tw) { ctx.save(); drawHook(ctx, t, t < tEnd ? 1 : 1 - sm((t - tEnd) / (tw * .75))); ctx.restore(); }
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
+  // 쪽 넘김: 부드러운 그림자 띠가 왼쪽에서 오른쪽으로 쓸고 지나간다
+  if (wiping) { const x = lerp(-260, W + 260, ease(q)), a = .10 * Math.sin(Math.PI * q), gr = ctx.createLinearGradient(x - 260, 0, x + 260, 0);
+    gr.addColorStop(0, 'rgba(60,40,20,0)'); gr.addColorStop(.7, `rgba(60,40,20,${a})`); gr.addColorStop(1, 'rgba(60,40,20,0)'); ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H); }
+  // 시작·끝 페이드(종이색)
+  const fin = 1 - sm(t / .4), fout = sm((t - (DURs - .7)) / .7);
+  ctx.fillStyle = `rgba(244,236,216,${Math.max(fin * .55, fout)})`; ctx.fillRect(0, 0, W, H);
+}
+
+window.DUR = 1; window.EV = [];
+window.render = render;
+window.TEXTS = () => LC.texts(TX);
+(async function init() {
+  try {
+    const { input, dur, opts } = await LC.load();
+    LANG = input.lang;
+    tl = LC.buildAuto(input, dur, opts);
+    window.DUR = tl.DUR; window.EV = tl.EV;
+    const sample = [tl.C.hook, tl.C.wrong, tl.C.right, tl.C.explain, tl.C.cta, tl.C.rightKo, tl.C.rightPh, tl.C.roman, ...tl.C.vocab.flatMap(v => [v.word, v.meaning, v.phonetic, v.type]),
+      ...tl.C.dialogue.flatMap(d => [d.line, d.ph, d.ko]), '@langcard.studio LANGCARD DICTIONARY · ENZHJA 0123456789 틀린 용례 올바른 용례 용법 NOTE 예문 관련 어휘 COLOPHON'].join(' ');
+    await Promise.all(['LCKR', 'LCJP', 'LCSC'].map(f => document.fonts.load(`700 40px ${f}`, sample)));
+    await Promise.all([document.fonts.load('400 40px "IM Fell English"', sample), document.fonts.load('italic 400 40px "IM Fell English"', sample)]);
+    await document.fonts.ready;
+    bgC = makeBg();
+    layout();
+    window.READY = true;
+  } catch (e) { console.error('init failed', e); throw e; }
+})();
+</script></body></html>
